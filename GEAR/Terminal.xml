@@ -1,0 +1,539 @@
+<plugin>
+  <instance class="Terminal" />
+  <code>// note: Terminal.xml requires Gear V08_10_16 or later.
+
+using System; 
+using System.IO;
+using System.Globalization;
+using System.Text; 
+using System.Windows.Forms;
+
+using Gear.EmulationCore;
+using Gear.PluginSupport;
+
+class Terminal : PluginBase
+{
+  // plugin options
+  const int BAUD = 160000;
+  const byte xmtPin = 0;
+  const bool TXinvert = true;	// true for serial driver with inverted RX
+  const byte rcvPin = 1;
+  const bool RXinvert = true;	// true for serial driver with inverted TX
+
+  private bool rxPin;
+  private bool CRLFflag;
+  private bool ESCflag;
+  private bool bracketFlag;
+  private bool value1Flag;
+  private bool delimiterFlag;
+  private bool value2Flag;
+
+
+  private byte[] sendBytes = new byte[80];
+  private byte rxByte;
+  private byte[] screen = new byte[82*32+2];
+
+  private int txByte;
+  private int invert;
+  private int UARTdivide;
+  private int UARTdelay;
+  private int txDivide;
+  private int txCount;
+  private int rxDivide;
+  private int rxCount;
+  private int row;
+  private int col;
+  private int wordLen;
+  private int ansiValue1;
+  private int ansiValue2;
+
+  private string tempStr;
+
+  private Propeller Chip;
+  private TextBox stringBox;
+  private Button sendBtn;
+  private Label monitor;
+  private System.ComponentModel.IContainer components;
+
+  System.Text.ASCIIEncoding enc = new System.Text.ASCIIEncoding();
+
+  public override Boolean AllowHotKeys { get { return false; } }
+
+  public override string Title
+  {
+    get { return "Terminal"; }
+  }
+
+  public Terminal()
+  {
+    //
+    // initialize component
+    //
+    this.components = new System.ComponentModel.Container();
+    this.stringBox = new System.Windows.Forms.TextBox();
+    this.sendBtn = new System.Windows.Forms.Button();
+    this.monitor = new System.Windows.Forms.Label();
+    this.SuspendLayout();
+    // 
+    // stringBox
+    // 
+    this.stringBox.Location = new System.Drawing.Point(21, 21);
+    this.stringBox.Name = "stringBox";
+    this.stringBox.Size = new System.Drawing.Size(495, 20);
+    this.stringBox.TabIndex = 1;
+    // 
+    // sendBtn
+    // 
+    this.sendBtn.Location = new System.Drawing.Point(534, 16);
+    this.sendBtn.Name = "sendBtn";
+    this.sendBtn.Size = new System.Drawing.Size(56, 29);
+    this.sendBtn.TabIndex = 2;
+    this.sendBtn.Text = "SEND";
+    this.sendBtn.UseVisualStyleBackColor = true;
+    this.sendBtn.Click += new System.EventHandler(this.sendBtn_Click);
+    // 
+    // monitor
+    // 
+    this.monitor.BackColor = System.Drawing.Color.Black;
+    this.monitor.CausesValidation = false;
+    this.monitor.Cursor = System.Windows.Forms.Cursors.No;
+    this.monitor.Font = new System.Drawing.Font("Courier New", 8.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+    this.monitor.ForeColor = System.Drawing.Color.Lime;
+    this.monitor.Location = new System.Drawing.Point(21, 62);
+    this.monitor.Name = "monitor";
+    this.monitor.Margin = new System.Windows.Forms.Padding(3);
+    //this.monitor.MaximumSize = new System.Drawing.Size(570, 452);
+    //this.monitor.MinimumSize = new System.Drawing.Size(570, 452);
+    //this.monitor.Size = new System.Drawing.Size(570, 452);
+    this.monitor.Text = "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                "+(char)0x0D+(char)0x0A+
+                        "                                                                                ";
+    this.monitor.AutoSize = true;
+
+    this.Controls.Add(this.stringBox);
+    this.Controls.Add(this.sendBtn);
+    this.Controls.Add(this.monitor);
+
+    this.ResumeLayout(false);
+    this.PerformLayout();
+
+    //clrScreen(2);	//clear screen, reset screen index to home
+    
+  }
+
+  public override void PresentChip(Propeller host)
+  {
+
+    Chip = host;
+    Chip.NotifyOnPins(this);
+    Chip.NotifyOnClock(this);
+
+    OnReset();
+  }
+
+  public override void OnReset()
+  {
+    //
+    // initialize variables
+    //
+    bracketFlag = false;
+    value1Flag = false;
+    delimiterFlag = false;
+    value2Flag = false;
+    ESCflag = false;
+    rxCount=0;
+    row = 0;
+    col = 0;
+    ansiValue1 = 0;
+    ansiValue2 = 0;
+    UARTdivide = ((int) Chip.CoreFrequency)/BAUD;
+    UARTdelay = (UARTdivide/2)*3;
+    txDivide = UARTdivide;
+    if (TXinvert)  invert = 1;
+    else invert = 0;
+  }
+
+  public override void OnPinChange(double time, PinState[] pins)
+  {
+    if ((rcvPin &gt;= 0) &amp;&amp; (rcvPin &lt; 32))
+    {
+      if (RXinvert) rxPin = pins[rcvPin] == PinState.OUTPUT_HI;
+      else rxPin = pins[rcvPin] == PinState.OUTPUT_LO;
+    }
+  }
+
+  public override void OnClock(double time)
+  {
+    //
+    // Transmit UART
+    //
+    if (--txDivide == 0)
+    {
+      txDivide = UARTdivide;
+      if (txCount &gt; 0)
+      {
+        if ((txByte &amp; 1) == invert) Chip.DrivePin(xmtPin, false, false);
+        else  Chip.DrivePin(xmtPin, false, true);
+        txByte &gt;&gt;= 1; 
+        txCount--;
+      }
+    }
+    //
+    // Receive UART
+    //
+    if (rxCount == 0)
+    {
+	if (rxPin)
+      {
+        rxDivide = UARTdelay;
+        rxCount = 9;
+        rxByte = 0;
+      }
+    }
+    else
+    {
+      if (--rxDivide == 0)
+      {
+	  rxDivide = UARTdivide;
+        rxCount--;
+
+	  rxByte &gt;&gt;= 1;
+	  if (rxPin) rxByte &amp;= 127;
+	  else rxByte |= 128;
+
+        if (rxCount == 1) 
+        {
+          processRxByte();
+        }
+      }
+    }
+
+  }
+
+  private void sendBtn_Click(object sender, EventArgs e)
+  {
+    sendBtn.Enabled = false;
+    sendBytes = enc.GetBytes(stringBox.Text);
+    int j = stringBox.Text.Length;
+
+    //parse - characters and hex values
+    for (int i = 0;i &lt; j;i++)
+    {
+      if (sendBytes[i] == 0x24)
+      {
+        j--;
+        for (int k = i;k &lt; j;k++) sendBytes[k] = sendBytes[k+1];
+        if (sendBytes[i] != 0x24)
+        {
+          for (int l=0;l&lt;2;l++)
+          {
+            if (sendBytes[i+l] &gt;= 0x30 &amp;&amp; sendBytes[i+l] &lt;= 0x39) sendBytes[i+l] -= 0x30;
+            if (sendBytes[i+l] &gt;= 0x41 &amp;&amp; sendBytes[i+l] &lt;= 0x46) sendBytes[i+l] -= 0x37;
+            if (sendBytes[i+l] &gt;= 0x61 &amp;&amp; sendBytes[i+l] &lt;= 0x66) sendBytes[i+l] -= 0x57;
+          }
+          sendBytes[i] *= 0x10;
+          sendBytes[i+1] += sendBytes[i];
+          j--;
+          for (int k = i;k &lt; j;k++) sendBytes[k] = sendBytes[k+1];
+        }
+        else i++;
+      }
+    }
+
+    //send byte array
+    for ( int i = 0;i&lt;j;i++ )
+    {
+      while (txCount &gt; 0) {Application.DoEvents() ;}
+      txByte = sendBytes[i];
+      txByte &lt;&lt;= 1;
+      txByte |= 512;
+      txCount = 10;
+    }
+    sendBtn.Enabled = true;
+  }
+  
+  private void clrScreen(int mode)
+  {
+    int i = 0;
+    int j = 0;
+    switch (mode)
+    {
+      case 0 :	// Clear screen from cursor down
+        i = row;
+        for (j = col;j &lt; 80;j++)
+        {
+          screen[i*82+j] = 0x20;
+        }
+        for (i = (row+1);i&lt;32;i++)
+        {
+          for (j = 0;j &lt; 80;j++)
+          {
+            screen[i*82+j] = 0x20;
+          }
+          screen[i*82+j++] = 0x0D; 
+          screen[i*82+j] = 0x0A; 
+        }
+        goto default;
+      case 1 :	// Clear screen from cursor up
+        for (i=0;i &lt; row;i++)
+        {
+          for (j=0;j &lt; 80;j++)
+          {
+            screen[i*82+j] = 0x20;
+          }
+          screen[i*82+j++] = 0x0D; 
+          screen[i*82+j++] = 0x0A; 
+        }
+        i = row;
+        for (j=0;j &lt;= col;j++)
+        {
+          screen[i*82+j] = 0x20;
+        } 
+        row = 0;
+        col = 0; 
+        goto default;
+      case 2 :	// Clear entire screen
+        for (row=0;row&lt;32;row++)
+        {
+          for (col=0;col&lt;80;col++)
+          {
+            screen[row*82+col] = 0x20;
+          }
+          screen[row*82+col++] = 0x0D; 
+          screen[row*82+col] = 0x0A; 
+        }
+        row = 0;
+        col = 0; 
+        wordLen = 0;
+        CRLFflag = false;
+        goto default;
+      default :
+        this.monitor.Text = enc.GetString(screen);
+        break;
+    }
+  }
+
+  private void clrLine(int mode)
+  {
+    switch (mode)
+    {
+      case 0 :	// Clear line from cursor right
+        for (int i = col;i&lt;80;i++)
+        {
+          screen[row*82+i] = 0x20;
+        }
+        goto default;
+      case 1 :	// Clear line from cursor left
+        for (int i = 0;i&lt;=(col);i++)
+        {
+          screen[row*82+i] = 0x20;
+        }
+        col = 0;
+        goto default;
+      case 2 :	// Clear entire line
+        for (int i = 0;i&lt;80;i++)
+        {
+          screen[row*82+i] = 0x20;
+        }
+        col = 0;
+        goto default;
+      default :
+        this.monitor.Text = enc.GetString(screen);
+        break;
+    }
+  }
+
+  private void scrollScreen()
+  {
+    //screen scroll
+    if (row*82+col &gt;= 82*32-1)
+    {
+      for (int i = 0; i &lt; 31; i++)
+      {            
+        for (int j = 0; j &lt; 82; j++)
+        {
+          screen[i*82+j] = screen[i*82+82+j];
+        }
+      }
+      row--;
+      clrScreen(0);
+    }
+  }
+
+  private void processRxByte()
+  {
+    //process incoming bytes 
+    if (!ESCflag) 
+    {
+      switch (rxByte)
+      {
+        case 0x08 :     // backspace
+          if (col == 0)
+          {
+            row--;
+            col = 79;
+          }
+          else col--;
+          screen[row*82+col] = 0x20;
+          if (wordLen &gt; 0) wordLen--;
+          this.monitor.Text = enc.GetString(screen);
+          break;
+        case 0x09 :	// tab
+          col += 5 - col % 5;
+          CRLFflag = false;
+          wordLen = 0;
+          break;
+        case 0x0A :	// linefeed
+          row += 1;
+          CRLFflag = true;
+          scrollScreen();
+          break;
+        case 0x0D :  	// carriage return
+          col = 0;
+          CRLFflag = true;
+          break;
+        case 0x1B :	// escape
+          ESCflag = true;
+          break;
+        default   :
+          if ((rxByte &gt;= 0x20) &amp;&amp; (rxByte &lt;= 0x7F))
+          {
+            //track word length
+            if ((rxByte == 0x20) | CRLFflag) wordLen = 0;
+            else wordLen += 1;
+            CRLFflag = false;
+
+            //auto CRLF after column 79
+            if (col == 80) 
+            {
+              col = 0;
+              row++;
+            }
+
+            scrollScreen();
+
+            //wrap text
+            if ((col == 0) &amp; (wordLen &gt; 1))
+            {
+              for (int i = 1; i &lt; wordLen; i++)
+              {
+                screen[row*82+col] = screen[row*82+col-wordLen-1];
+                screen[row*82+col-wordLen-1] = 0x20;
+                col++;
+              }
+            }
+            if (col == 1 &amp;&amp; wordLen == 1 &amp;&amp; screen[row*82+col-1] == 0x20) col--;
+
+            //get character
+            screen[row*82+col++] =  rxByte;
+            this.monitor.Text = enc.GetString(screen);
+          }
+          break;
+      }
+    }
+    else
+    {
+      //process escape codes
+      if ((rxByte) == 0x5B &amp;&amp; !bracketFlag) bracketFlag = true;
+      else if (!bracketFlag) ESCflag = false;
+      else
+      {
+        if (rxByte &lt;= 0x39 &amp;&amp; !value1Flag) 
+        {
+          value1Flag = true;
+          ansiValue1 = rxByte;
+        }
+        else if ((rxByte == 0x3B) &amp;&amp; value1Flag)
+        {
+          delimiterFlag = true;
+        }
+        else if (delimiterFlag &amp;&amp; !value2Flag) 
+        {
+          value2Flag = true;
+          ansiValue2 = rxByte;
+        }
+        else
+        {
+          switch (rxByte)
+          {
+            case 0x48 : // "ESC[vhH" - Move cursor to screen location v,h
+              row = ansiValue1;
+              col = ansiValue2;
+              wordLen = 0;
+              CRLFflag = false;
+              goto default;
+            case 0x4A : // "ESCnJ" - Clear screen functions
+              switch (ansiValue1)
+              {
+                case 0x30  :    // Clear screen from cursor down 
+                  clrScreen(0);
+                  break;
+                case 0x31  :    // Clear screen from cursor up 
+                  clrScreen(1);
+                  break;
+                case 0x32  :    // Clear entire screen 
+                  clrScreen(2);
+                  break;
+              }
+              goto default;
+            case 0x4B :	// "ESCnK" - Clear line functions
+              switch (ansiValue1)
+              {
+                case 0x30  :    // Clear line from cursor right 
+                  clrLine(0);
+                  break;
+                case 0x31  :    // Clear line from cursor left 
+                  clrLine(1);
+                  break;
+                case 0x32  :    // Clear entire line 
+                  clrLine(2);
+                  break;
+              }
+              goto default;
+            default   :
+              ESCflag = false;
+              bracketFlag = false;
+              value1Flag = false;
+              delimiterFlag = false;
+              value2Flag = false;
+              ansiValue1 = 0;
+              ansiValue2 = 0;
+              break;
+          }
+        }
+      }
+    }
+  }
+
+}
+</code>
+</plugin>
