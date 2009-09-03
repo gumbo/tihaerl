@@ -106,55 +106,6 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         jmp #wait
 
 
-        { Move so that curPos==reqPos
-          During the low pulse time, check that we can continue (status var in hub mem == 0)    
-        }
-mvsetup rdlong lowWaitTime, waitHubAddr
-        rdlong reqPos, reqPosHubAddr
-        rdlong curPos, curPosHubAddr
-        
-        cmp curPos, reqPos wz, wc
-  if_z  jmp #done                               'nothing to do, resume waiting
-  if_c  andn dira, dirPin                       'dir high if positive direction
-  if_nc or   dira, dirPin                       'else dir low
-  if_c  mov posDelta, #1                         'proper increment of curPos
-  if_nc mov posDelta, negOne
-
-        'Wait for dir to settle
-        mov cntVal, #38
-        add cntVal, cnt
-        waitcnt cntVal, #1
-
-        mov curStep, #0
-        
-        'Start stepping sequence
-        or  dira, stepPin                      'Make step low (output = yes)
-        mov cntVal, #20                         'initalize the timer 
-        add cntVal, cnt                         '20 is ~min delay 
-mvloop  cmp curPos, reqPos wz
-  if_z  jmp #done                               'leave if equal                                       
-        waitcnt cntVal, highWaitTime            'Wait for the low pulse time (if not first iteration)
-        xor dira, stepPin                       'Inside high pulse
-        adds curPos, posDelta
-        add curStep, #1        
-        waitcnt cntVal, #0                                      
-        xor dira, stepPin                       'Transition to low pulse
-
-        call #_determineAccelValue
-'        mov   curVel, maxVel 
-        call #_calcLowTime
-
-        add cntVal, outL
-                
-        wrlong curPos, curPosHubAddr 
-        rdlong status, statusHubAddr
-        test status, #1 wz                      '1 is the main limit bit (See Constants.spin) 
-  if_nz jmp #done                               'limits hit         
-        jmp #mvloop
-
-done    andn status, goBit                         'clear the go bit
-        wrlong status, statusHubAddr        
-        
 wait    rdlong status, statusHubAddr        
         test status, goBit wz
   if_nz jmp #mvsetup                               'signal to start
@@ -163,51 +114,6 @@ wait    rdlong status, statusHubAddr
         call #_configurePath                        'Setup the appropriate numbers for this axis                      
         jmp #wait
 
-'Determine which portion of the velocity trapezoid the current step falls on
-'Return the velocity        
-_determineAccelValue
-        cmp curStep, fip wc
-if_nc   jmp #cruiseVel
-
-        mov inH, #0
-        mov inL, accelVal
-        mov in2, curStep
-        call #_mult
-        mov curVel, outL
-
-        jmp #_determineAccelValue_ret
-
-cruiseVel
-        cmp curStep, sip wc
-if_nc   jmp #decelVel
-
-        mov curVel, maxVel
-
-        jmp #_determineAccelValue_ret
-
-decelVel
-        mov inH, #0                             'Deceleration does not occur
-        mov inL, decelVal
-        mov in2, curStep
-        call #_mult
-        neg outL, outL
-        adds outL, c
-
-        mov curVel, outL                        
-
-_determineAccelValue_ret ret
-
-'New rate is in curVal
-'Output is in outL
-'Executes rateScaleFactor / curVel 
-_calcLowTime
-
-        mov inH, #0
-        mov inL, rateScaleFactor
-        mov in2, curVel
-        call #_div
-
-_calcLowTime_ret ret
 
 
 ' Calculates the correct pulse period based on the following formula:
