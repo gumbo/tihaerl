@@ -1,31 +1,28 @@
 CON
-  StatusOffset  = 0          'Address
-  GoBitOffset   = 1
+  StatusOffset   = 0          'Address
+  GoBitOffset    = 1
   SetupBitOffset = 2
   ErrorBitOffset = 3
-  StepPinOffset = 4
-  DirPinOffset  = 5
-  LowWaitOffset = 6          'Address
-  AccelOffset   = 7          'Address
-  DecelOffset   = 8          'Address
-  MaxRateOffset = 9
-  CurPosOffset  = 10         'Address
-  ReqPosOffset  = 11         'Address  
-  MathParamsOffset = 12      'Address
+  StepPinOffset  = 4  
+  DirPinOffset   = 5
+  LimitPinOffset = 6
+  AccelOffset    = 7
+  MaxRateOffset  = 8
+  CurPosOffset   = 9  
+  ReqPosOffset   = 10
 
-  'Math Array Offsets
-  ClockFreqOffset = 0
-  NewPosOffset = 1
-  XDistOffset = 2
-  YDistOffset = 3
-  ZDistOffset = 4     
+  Ramp_Idle      = 0
+  Ramp_Up        = 1
+  Ramp_Max       = 2 
+  Ramp_Down      = 3
+  Ramp_Last      = 4     
+     
 OBJ
   Constants : "Constants"
 VAR
   long axisData[15]
-  long mathParams[10]
   long clockFreq  
-PUB init(stepPinNum, dirPinNum, statusAddr, goBitMask, setupBitMask, errorBitMask)
+PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask, errorBitMask)
 
     longfill(@axisData, $0, 10)
     
@@ -35,7 +32,7 @@ PUB init(stepPinNum, dirPinNum, statusAddr, goBitMask, setupBitMask, errorBitMas
     axisData[ErrorBitOffset] := errorBitMask
     axisData[StepPinOffset] := stepPinNum
     axisData[DirPinOffset]  := dirPinNum
-    axisData[MathParamsOffset] := @mathParams
+    axisData[LimitPinOffset]  := limitPinNum
 
     clockFreq := clkFreq
      
@@ -46,22 +43,10 @@ PUB setCurrentPosition(curPosition)
   axisData[CurPosOffset] := curPosition
 PUB getCurrentPosition
   return axisData[CurPosOffset]    
-PUB setLowTime(timeInClocks)
-  axisData[LowWaitOffset] := timeInClocks
-PUB setAccelerationRate(accelRate)
-  axisData[AccelOffset] := accelRate          
-PUB setDecelerationRate(decelRate)
-  axisData[DecelOffset] := decelRate
+PUB setAccelerationRate(_accelRate)
+  axisData[AccelOffset] := _accelRate
 PUB setMaxStepRate(maxRate)
   axisData[MaxRateOffset] := maxRate
-PUB configurePath(newPos, xDist, yDist, zDist)
-  mathParams[ClockFreqOffset] := clockFreq
-  mathParams[MaxRateOffset] := axisData[MaxRateOffset]
-  mathParams[NewPosOffset] := newPos
-  mathParams[XDistOffset] := xDist
-  mathParams[YDistOffset] := yDist
-  mathParams[ZDistOffset] := zDist
-PUB home(limitPin)         
 DAT
         ORG 0
 entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub memory
@@ -72,22 +57,14 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         add hubAddr, #4
         rdlong setupBit, hubAddr
         add hubAddr, #4
-        rdlong errorBit, hubAddr
-        add hubAddr, #4
         rdlong stepPin, hubAddr                                 
         add hubAddr, #4                                         
         rdlong dirPin, hubAddr                                  
         add hubAddr, #4
-
-        mov homeBit, goBit
-        or homeBit, errorBit
-        or homeBit, setupBit
-
-        mov waitHubAddr, hubAddr                             
+        rdlong limitPin, hubAddr
         add hubAddr, #4
+        
         mov accelHubAddr, hubAddr                            
-        add hubAddr, #4
-        mov decelHubAddr, hubAddr                            
         add hubAddr, #4
         mov maxRateAddr, hubAddr
         add hubAddr, #4
@@ -96,8 +73,6 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         mov reqPosHubAddr, hubAddr
         add hubAddr, #4
 
-        rdlong mathParamsAddr, hubAddr
-        
         or dira, stepPin
         or dira, dirPin
         andn outa, stepPin
@@ -105,125 +80,85 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
 
         jmp #wait
 
-
 wait    rdlong status, statusHubAddr        
         test status, goBit wz
-  if_nz jmp #mvsetup                               'signal to start
+  if_nz jmp #moveLoop                              'signal to start
         test status, setupBit wz
-  if_z  jmp #wait
-        call #_configurePath                        'Setup the appropriate numbers for this axis                      
+  if_nz call #_configureMove                       'Setup the appropriate numbers for this axis                      
+        jmp #wait
+
+_configureMove
+        rdlong curPos, curPosHubAddr 
+        rdlong reqPos, reqPosHubAddr
+
+        cmp curPos, reqPos wc, wz
+
+   if_z jmp #wait
+                 
+   if_c andn outa, dirPin                          '"Positive" direction (away from the motor)
+  if_nc or   outa, dirPin                          '"Negative" direction (towards the motor)
+
+        mov posDelta, #0
+   if_c add posDelta, #1                           'curPos++
+  if_nc subs posDelta, #1                          'curPos--
+
+'        call #wait2us
+
+        mov length, curPos
+        subabs length, reqPos
+        mov midPoint, length
+        shr midPoint, #1        
+
+        mov rampState, RAMP_UP
+
+_configureMove_ret ret
+
+moveLoop
+        mov ctr, loopIterations
+accelWait                        
+        cmp nextTransition, PHSB wz
+  if_z  jmp nextState
+        test OUTA, limitPin wz                  'Assumes that limit pin goes high when active
+  if_nz jmp #stopState
+        djnz ctr, #accelWait                    'Loop for ~1ms, minus processing time
+
+        jmp currentState
+        
+        'Accel State
+accelState        
+        cmp FRQA, maxVelocity wc                'If we are not to the maximum velocity                                                                             
+   if_c add FRQA, accelRate                     'Then accelerate the timer frequency
+   if_c min FRQA, maxVelocity                   'Make sure we don't go over the max velocity
+  if_nc mov currentState, #cruiseState          'Jump to the cruise state if we've finished accelerating
+  if_nc mov nextTransition, length              'We are going to get kicked out of cruise by the monitor loop
+  if_nc sub nextTransition, PHSB                'At point (length - curStepCtr)
+
+        jmp #moveLoop
+
+decelState
+        sub FRQA, accelRate                     'Decelerate
+        max FRQA, accelRate                     'Make sure we don't stop completely (or go negative)
+        mov nextState, #stopState               'We are going to stop if the monitor loop kicks us out
+        mov currentState, #decelState           'Jump back to decel if 1ms expires
+        mov nextTransition, length              'Stop when we've gone far enough
+
+        jmp #moveLoop
+
+cruiseState
+        jmp #moveLoop
+
+stopState
+        mov CTRA, #0                            'Stop the step generator
+        'TODO DO MORE HERE TO SHUTDOWN STEPPING (SEND POS TO HUB?)         
         jmp #wait
 
 
-
-' Calculates the correct pulse period based on the following formula:
-'(clockFreq * axisLength) / pathLength
-'Also configures the acceleration profile
-'Retuns result in outL
-_configurePath
-        mov hubAddr, mathParamsAddr
-        rdlong i4, hubAddr      'Clock freq      
-        add hubAddr, #4
-        rdlong reqPos, hubAddr  'New Position
-        wrlong reqPos, reqPosHubAddr
-        add hubAddr, #4
-        rdlong i1, hubAddr      'X dist
-        add hubAddr, #4
-        rdlong i2, hubAddr      'Y dist
-        add hubAddr, #4
-        rdlong i3, hubAddr      'Z dist
-        add hubAddr, #4
-                
-        'Calculate axis length
-        rdlong curPos, curPosHubAddr
-        mov in2, reqPos                         'in2 is the axisLength
-        subs in2, curPos
-        abs in2, in2
-
-        mov inL, i4            
-        call #_mult
-        mov tH, outH
-        mov tL, outL
-
-        call #_calcPathLength  'puts length in outL
-        mov pathLength, outL
-        mov inH, tH
-        mov inL, tL
-        mov in2, outL
         
-        call #_div
-        mov rateScaleFactor, outL
-
-        'Create the velocity profile information
-readParams        
-        rdlong accelVal, accelHubAddr
-        rdlong decelVal, decelHubAddr
-        rdlong maxVel,  maxRateAddr
-
-        abs inL, decelVal
-        add pathLength, #1
-        mov in2, pathLength
-        call #_mult
-        mov c, outL
-
-        mov inL, c              'c * accelVal
-        mov in2, accelVal
-        call #_mult
-
-        mov inH, #0             ' (c * accelVal) / (accelVal - decelVal)
-        mov inL, outL
-        mov in2, accelVal
-        add in2, decelVal
-        call #_div
-
-        cmp outL, maxVel wc
- if_nc  jmp #cruiseSpeedReached
-        mov fip, outL
-        mov sip, outL
-        jmp #signal
-        
-cruiseSpeedReached
-        mov inH, #0
-        mov inL, maxVel
-        mov in2, accelVal
-        call #_div
-        mov fip, outL
-
-        mov inH, #0
-        mov inL, maxVel
-        subs inL, c
-        abs inL, inL
-        mov in2, decelVal
-        call #_div
-        mov sip, outL                
-                
-signal  andn status, setupBit                      'Signal we're done
-        wrlong status, statusHubAddr    'Notify the Spin code
-
-_configurePath_ret ret
-
-_calcPathLength
-        mov inL, i1
-        mov in2, i1
-        call #_mult
-        mov t2, outL    't3:2 is the temporary 
-        mov t3, outH
-        mov inL, i2
-        mov in2, i2
-        call #_mult
-        add t2, outL wc
-        addx t3, outH
-        mov inL, i3
-        mov in2, i3
-        call #_mult
-        add t2, outL wc
-        addx t3, outH
-
-        mov inL, t2
-        mov inH, t3
-        call #_sqrt
-
-_calcPathLength_ret ret                   
+wait2us 'Wait ~2us for dir to settle
+        mov cntVal, #160
+        add cntVal, cnt
+        waitcnt cntVal, #1
+wait2us_ret ret        
 
 'Begin 64 bit math routines
 '-----------------------------------------------
@@ -376,8 +311,27 @@ _div_loop
   if_nc cmpsub inH,in2 wc     'Otherwise, use cmpsub to do the dirty work.
         djnz  t1,#_div_loop  'Back for more.
         rcl   inL,#1 wc     'Rotate last quotient bit into place, restoring original carry.
-        mov outL, inL               
+        mov   outL, inL               
 _div_ret    ret
+
+'Divide inH:inL by in2 (signed), leaving quotient in inL, remainder in inH, and in2 unchanged.
+'Precondition: inH < in2.
+'From http://forums.parallax.com/forums/default.aspx?f=25&m=245998&g=246017#m246017
+'By Phil Pilgrim
+
+_sdiv    mov   t1,#32     'Initialize loop counter.
+         rol   in2, #1 wc 'If in2 is negative, then strip off the sign bit and preserve it in the carry flag
+         shr   in2, #1    'Fixup our divisor
+_sdiv_loop
+        rcl   inL,#1 wc     'Rotate quotient bit in from carry,
+        rcl   inH,#1 wc     '  and rotate dividend out to carry
+   if_c sub   inH,in2        'in2 < carry:inH if carry set, so just subtract, leaving carry set.
+  if_nc cmpsub inH,in2 wc     'Otherwise, use cmpsub to do the dirty work.
+        djnz  t1,#_sdiv_loop  'Back for more.
+        rcl   inL,#1 wc     'Rotate last quotient bit into place, restoring original carry.
+        mov   t1,  #0
+   if_c subs  t1, inL      'Add back our sign bit              
+_sdiv_ret    ret
                              
 'Compute a rounded integer square root 64 bits -> 32 bits
 'Input inH:inL
@@ -460,43 +414,45 @@ _nlz_loop
 
 _nlz_ret ret
 
-highWaitTime  LONG 1200
-negOne        LONG -1
+
+c0      LONG 4_000_000      
 
 posDelta      res 1
 hubAddr       res 1
 stepPin       res 1
 dirPin        res 1
-lowWaitTime   res 1
+limitPin      res 1
 goBit         res 1
 setupBit      res 1
 errorBit      res 1
-homeBit       res 1
 
 curPos        res 1
 reqPos        res 1
 cntVal        res 1
 status        res 1
 
+ctr            res 1
+loopIterations res 1
+
+currentState res 1
+nextState res 1
+nextTransition res 1
+ 
+
 statusHubAddr res 1
 curPosHubAddr res 1
 reqPosHubAddr res 1
-waitHubAddr   res 1
 accelHubAddr  res 1
 decelHubAddr  res 1
 maxRateAddr   res 1
-mathParamsAddr res 1
 
-curVel res 1
-rateScaleFactor res 1
-fip res 1               'Velocity inflection points (where we switch to no accel)
-sip res 1
-maxVel res 1
-curStep res 1
-accelVal res 1
-decelVal res 1
-c res 1                 'Offset for decel line
-pathLength res 1
+maxVelocity res 1
+accelRate res 1
+midPoint res 1
+length res 1
+
+rampJmp res 1
+rampState res 1
 
 'Variables for 64 bit math stuff
 inH res 1

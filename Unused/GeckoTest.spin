@@ -5,22 +5,53 @@ VAR
   LONG i
 
 PUB main
-{{  dira[0]~~
+
+  '             mode  PLL     APIN
+  ctra    := %00100_000 << 23 + 10  'Establish mode and APIN (BPIN is ignored)
+  frqa    := $10_0000                     'Set FRQA so PHS[31] toggles every clock
+  dira[10] := 1                              'Set APIN to output
+
+
+  dira[0]~~
   dira[1]~~
   dira[2]~~
   dira[3]~~
 
-  outa[0] := 0
-  outa[1] := 0
-  outa[2] := 0  
-  outa[3] := 0
+  changeXDir(1)
+  changeYDir(1)
 
-'  moveY(4000, 20_000)
- ' moveX(7000, 20_000)
+'  moveY(2000, 20_000)
+ ' moveX(4000, 20_000)
 
+  changeYDir(0)
+  repeat i from 0 to 9
+    changeXDir(1)
+    moveX(5000, 20_000)
+    moveY(500, 20_000)
+    changeXDir(0)
+    moveX(5000, 20_000)
+    moveY(500, 20_000)
+
+  'repeat
+
+{{  changeXDir(0)
+  changeYDir(0)  
+  moveXY(3000, 20_000)
+  changeXDir(1)
+  changeYDir(0)
+  moveXY(3000, 20_000)
+  changeXDir(1)
+  changeYDir(1)
+  moveXY(3000, 20_000)
+  changeXDir(0)
+  changeYDir(1)
+  moveXY(3000, 20_000)}}
+
+  repeat
+   
 
   
-  repeat
+{{  repeat
     outa[3] := 0
 '    moveX(10000, 10_000)
     moveY(10000, 10_000)
@@ -33,15 +64,8 @@ PUB main
 '    moveX(10000, 10_000)
     moveY(10000, 10_000)
 
-   waitcnt(clkfreq / 2 + cnt)}}
-
-
-  '             mode  PLL     APIN
-  ctra    := %00100_000 << 23 + 10  'Establish mode and APIN (BPIN is ignored)
-  frqa    := $10_0000                     'Set FRQA so PHS[31] toggles every clock
-  dira[10] := 1                              'Set APIN to output
-  repeat                                    'infinite loop, so counter continues to run
-   
+      waitcnt(clkfreq / 2 + cnt)
+  }}
 
 
 PUB moveX (steps, delay)
@@ -57,4 +81,20 @@ PUB moveY (steps, delay)
     waitcnt(delay + cnt)
     outa[2] := 0
     waitcnt(delay + cnt)
-    
+
+PUB moveXY (steps, delay)
+  repeat i from 0 to steps
+    outa[0] := 1
+    outa[2] := 1
+    waitcnt(delay + cnt)
+    outa[0] := 0
+    outa[2] := 0
+    waitcnt(delay + cnt)
+
+PUB changeXDir(direction)
+  outa[1] := direction  
+  waitcnt(100_000 + cnt)
+
+PUB changeYDir(direction)
+  outa[3] := direction
+  waitcnt(100_000 + cnt)    
