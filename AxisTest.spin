@@ -4,6 +4,7 @@ CON
 
 OBJ
   x : "Axis"
+  y : "Axis"
   f : "Synth"
 '   vp    :       "Conduit"
 ' qs    :       "QuickSample"      'samples INA continuously
@@ -22,18 +23,23 @@ PUB main
 'Share memory from varA..varC with ViewPort
  vp.share(@status,@status)
  }}
- 
-  
+
   f.Synth("A", 10, 15000)       'Charge pump
 
 
   status := 0
   x.init(0, 1, 8, @status, %100, %010, %001)
+  y.init(2, 3, 9, @status, %100, %010, %001)
 
-  x.setCurrentPosition(10)
-  x.setRequestedPosition(100)
-  x.setAccelerationRate(100)
-  x.setMaxStepRate(500)
+  x.setCurrentPosition(5000)
+  x.setRequestedPosition(0)
+  x.setAccelerationRate(500)
+  x.setMaxStepRate(2000)
+
+'  y.setCurrentPosition(10000)
+'  y.setRequestedPosition(0)
+ ' y.setAccelerationRate(500)
+ ' y.setMaxStepRate(8000)
 
   status := %110
 

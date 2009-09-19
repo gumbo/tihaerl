@@ -39,6 +39,7 @@ PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask
     clockFreq := clkFreq
      
     cognew(@entry, @axisData)
+
 PUB setRequestedPosition(reqPosition)
   axisData[ReqPosOffset] := reqPosition
 PUB setCurrentPosition(curPosition)
@@ -71,6 +72,7 @@ PUB setMaxStepRate(maxRate) | freq
   axisData[MaxRateOffset] := freq
 DAT
         ORG 0
+        
 entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub memory
 
         rdlong statusHubAddr, hubAddr                'Position 0        
@@ -97,10 +99,15 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         mov reqPosHubAddr, hubAddr
         add hubAddr, #4
 
-        or dira, stepPin
-        or dira, dirPin
-        andn outa, stepPin
-        andn outa, dirPin        
+        shl stepPinMask, stepPin
+        shl dirPinMask, dirPin
+        shl limitPinMask, limitPin
+        
+
+        or dira, stepPinMask
+        or dira, dirPinMask
+        andn outa, stepPinMask
+        andn outa, dirPinMask        
 
         jmp #wait
 
@@ -127,11 +134,12 @@ _configureMove
         cmps curPos, reqPos wc, wz
 
    if_z jmp #wait
-                 
-   if_c andn outa, dirPin                          '"Positive" direction (away from the motor)
-  if_nc or   outa, dirPin                          '"Negative" direction (towards the motor)
 
-'        call #wait2us
+   'This was c, second was nc            
+  if_nc andn outa, dirPinMask                      '"Positive" direction (away from the motor)
+   if_c or   outa, dirPinMask                      '"Negative" direction (towards the motor)
+
+        call #wait2us
 
         mov length, curPos
         subs length, reqPos
@@ -167,8 +175,8 @@ moveLoop
 accelWait                        
         cmp nextTransition, PHSB wz
   if_z  jmp nextState
-        test INA, limitPin wz                  'Assumes that limit pin goes high when active
-  if_nz jmp #stopState
+'        test INA, limitPin wz                  'Assumes that limit pin goes high when active
+'  if_nz jmp #stopState
         djnz ctr, #accelWait                    'Loop for ~1ms, minus processing time
 
         jmp currentState
@@ -466,7 +474,10 @@ _nlz_loop
 _nlz_ret ret
 
 
-loopIterations LONG 80_000 
+loopIterations LONG 1_000_000 '80_000
+stepPinMask   LONG 1
+dirPinMask    LONG 1
+limitPinMask  LONG 1 
 
 posDelta      res 1
 hubAddr       res 1
@@ -535,3 +546,4 @@ i6 res 1
 ptr res 1
 
         FIT 496
+        
