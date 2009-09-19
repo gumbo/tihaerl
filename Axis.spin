@@ -34,6 +34,8 @@ PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask
     axisData[DirPinOffset]  := dirPinNum
     axisData[LimitPinOffset]  := limitPinNum
 
+    axisData[CurPosOffset] := 0
+
     clockFreq := clkFreq
      
     cognew(@entry, @axisData)
@@ -56,6 +58,8 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         rdlong goBit, hubAddr
         add hubAddr, #4
         rdlong setupBit, hubAddr
+        add hubAddr, #4
+        rdlong errorBit, hubAddr
         add hubAddr, #4
         rdlong stepPin, hubAddr                                 
         add hubAddr, #4                                         
@@ -81,15 +85,20 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         jmp #wait
 
 wait    rdlong status, statusHubAddr        
-        test status, goBit wz
-  if_nz jmp #moveLoop                              'signal to start
         test status, setupBit wz
-  if_nz call #_configureMove                       'Setup the appropriate numbers for this axis                      
+  if_nz call #_configureMove                       'Setup the appropriate numbers for this axis
+        test status, goBit wz
+  if_nz jmp #startMove                              'signal to start
+                      
         jmp #wait
 
 _configureMove
         rdlong curPos, curPosHubAddr 
         rdlong reqPos, reqPosHubAddr
+
+        rdlong accelRate, accelHubAddr 
+        rdlong maxVelocity, maxRateAddr
+
 
         cmp curPos, reqPos wc, wz
 
@@ -105,30 +114,49 @@ _configureMove
 '        call #wait2us
 
         mov length, curPos
-        subabs length, reqPos
+        subs length, reqPos
+        abs length, length
         mov midPoint, length
-        shr midPoint, #1        
+        shr midPoint, #1
 
-        mov rampState, RAMP_UP
+        mov nextState, #decelState
+        mov currentState, #accelState
+        mov nextTransition, midPoint
 
+        andn outa, stepPin
+
+        mov FRQA, #0        
+        mov FRQB, #1
+        mov PHSA, #0
+        mov PHSB, #0
+        mov CTRA, #0
+        mov CTRB, #0
+
+        movi CTRA, #%0_00100_000   'NCO mode
+        movi CTRB, #%0_01010_000   'POSEDGE detector
+
+        movs CTRA, stepPin
+        movs CTRB, stepPin
 _configureMove_ret ret
 
+startMove
+        mov FRQA, accelRate
+        
 moveLoop
         mov ctr, loopIterations
 accelWait                        
         cmp nextTransition, PHSB wz
   if_z  jmp nextState
-        test OUTA, limitPin wz                  'Assumes that limit pin goes high when active
+        test INA, limitPin wz                  'Assumes that limit pin goes high when active
   if_nz jmp #stopState
         djnz ctr, #accelWait                    'Loop for ~1ms, minus processing time
 
         jmp currentState
         
         'Accel State
-accelState        
-        cmp FRQA, maxVelocity wc                'If we are not to the maximum velocity                                                                             
-   if_c add FRQA, accelRate                     'Then accelerate the timer frequency
-   if_c min FRQA, maxVelocity                   'Make sure we don't go over the max velocity
+accelState                                                                             
+        add FRQA, accelRate                     'Accelerate the timer frequency
+        max FRQA, maxVelocity wc                'Make sure we don't go over the max velocity
   if_nc mov currentState, #cruiseState          'Jump to the cruise state if we've finished accelerating
   if_nc mov nextTransition, length              'We are going to get kicked out of cruise by the monitor loop
   if_nc sub nextTransition, PHSB                'At point (length - curStepCtr)
@@ -137,7 +165,7 @@ accelState
 
 decelState
         sub FRQA, accelRate                     'Decelerate
-        max FRQA, accelRate                     'Make sure we don't stop completely (or go negative)
+        mins FRQA, accelRate                     'Make sure we don't stop completely (or go negative)
         mov nextState, #stopState               'We are going to stop if the monitor loop kicks us out
         mov currentState, #decelState           'Jump back to decel if 1ms expires
         mov nextTransition, length              'Stop when we've gone far enough
@@ -148,7 +176,7 @@ cruiseState
         jmp #moveLoop
 
 stopState
-        mov CTRA, #0                            'Stop the step generator
+        mov CTRA, #0                            'Stop the step generator        
         'TODO DO MORE HERE TO SHUTDOWN STEPPING (SEND POS TO HUB?)         
         jmp #wait
 
@@ -415,7 +443,7 @@ _nlz_loop
 _nlz_ret ret
 
 
-c0      LONG 4_000_000      
+loopIterations LONG 80_000 
 
 posDelta      res 1
 hubAddr       res 1
@@ -432,7 +460,6 @@ cntVal        res 1
 status        res 1
 
 ctr            res 1
-loopIterations res 1
 
 currentState res 1
 nextState res 1

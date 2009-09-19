@@ -17,7 +17,13 @@ PUB main
   dira[2]~~
   dira[3]~~
 
-  changeXDir(1)
+
+  changeYDir(0)
+  moveY(8000, 20_000)
+'    changeXDir(0)
+ ' moveX(20000, 20_000)
+
+{{  changeXDir(1)
   changeYDir(1)
 
 '  moveY(2000, 20_000)
@@ -31,6 +37,7 @@ PUB main
     changeXDir(0)
     moveX(5000, 20_000)
     moveY(500, 20_000)
+    }}
 
   'repeat
 
