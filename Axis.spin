@@ -45,10 +45,30 @@ PUB setCurrentPosition(curPosition)
   axisData[CurPosOffset] := curPosition
 PUB getCurrentPosition
   return axisData[CurPosOffset]    
-PUB setAccelerationRate(_accelRate)
-  axisData[AccelOffset] := _accelRate
-PUB setMaxStepRate(maxRate)
-  axisData[MaxRateOffset] := maxRate
+PUB setAccelerationRate(_accelRate) | freq
+  _accelRate <<= 1 
+
+  repeat 32                            'perform long division of a/b
+    freq <<= 1
+    if _accelRate => CLKFREQ
+      _accelRate -= CLKFREQ
+      freq++
+                   
+    _accelRate <<= 1
+    
+  axisData[AccelOffset] := freq
+PUB setMaxStepRate(maxRate) | freq
+  maxRate <<= 1 
+
+  repeat 32                            'perform long division of a/b
+    freq <<= 1
+    if maxRate => CLKFREQ
+      maxRate -= CLKFREQ
+      freq++
+                 
+    maxRate <<= 1
+
+  axisData[MaxRateOffset] := freq
 DAT
         ORG 0
 entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub memory
@@ -86,9 +106,13 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
 
 wait    rdlong status, statusHubAddr        
         test status, setupBit wz
+  if_nz andn status, setupBit      
   if_nz call #_configureMove                       'Setup the appropriate numbers for this axis
+  if_nz wrlong status, statusHubAddr
         test status, goBit wz
+  if_nz andn status, goBit      
   if_nz jmp #startMove                              'signal to start
+  if_nz wrlong status, statusHubAddr
                       
         jmp #wait
 
@@ -100,16 +124,12 @@ _configureMove
         rdlong maxVelocity, maxRateAddr
 
 
-        cmp curPos, reqPos wc, wz
+        cmps curPos, reqPos wc, wz
 
    if_z jmp #wait
                  
    if_c andn outa, dirPin                          '"Positive" direction (away from the motor)
   if_nc or   outa, dirPin                          '"Negative" direction (towards the motor)
-
-        mov posDelta, #0
-   if_c add posDelta, #1                           'curPos++
-  if_nc subs posDelta, #1                          'curPos--
 
 '        call #wait2us
 
@@ -177,7 +197,10 @@ cruiseState
 
 stopState
         mov CTRA, #0                            'Stop the step generator        
-        'TODO DO MORE HERE TO SHUTDOWN STEPPING (SEND POS TO HUB?)         
+        cmps curPos, reqPos wc
+   if_c adds curPos, PHSB
+  if_nc subs curPos, PHSB
+        wrlong curPos, curPosHubAddr                         
         jmp #wait
 
 

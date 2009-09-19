@@ -30,9 +30,10 @@ PUB main
   status := 0
   x.init(0, 1, 8, @status, %100, %010, %001)
 
-  x.setRequestedPosition(30)
-  x.setAccelerationRate(215_000)
-  x.setMaxStepRate(429_497)
+  x.setCurrentPosition(10)
+  x.setRequestedPosition(100)
+  x.setAccelerationRate(100)
+  x.setMaxStepRate(500)
 
   status := %110
 
