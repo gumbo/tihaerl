@@ -11,8 +11,8 @@ CON
    '' R<axis><steps per second, 0-9999>
    STEP_RATE = "R" ' Maximum number of steps per second
    
-   ''A<axis><steps per second^2>  Acceleration amount - this value is added to the axis step rate 50 times per second
-   ''Negative acceleration specifies a deceleration rate
+   ''A<axis><steps per second^2>  Acceleration amount - this value is added to or subtracted from
+   ''the axis step rate 1000 times per second
    ACCEL_RATE =  "A"
    
    ENABLE_DRIVES  = "E" 
@@ -33,6 +33,7 @@ CON
    X_AXIS   =  "X"
    Y_AXIS   =  "Y"
    Z_AXIS   =  "Z"
+   A_AXIS   =  "A"    
 
 
    { Extruder Mode commands }
@@ -44,6 +45,7 @@ CON
    X_POS        = "X"
    Y_POS        = "Y"
    Z_POS        = "Z"
+   A_POS        = "A"  
 
   'Offsets for the shared data array in RAM
   AXIS_LEN = 7  
@@ -75,7 +77,7 @@ VAR
   long ttmp
 
   'Movement variables
-  long xPos, yPos, zPos
+  long xPos, yPos, zPos, aPos
 PUB init
 
    'Initialize status
@@ -83,11 +85,17 @@ PUB init
 
    clockFreq := clkFreq
    
-   xObj.init(Pins#XStep, Pins#XDir, @status, Constants#X_Go, Constants#X_Setup, Constants#X_Error)
-   yObj.init(Pins#YStep, Pins#YDir, @status, Constants#Y_Go, Constants#Y_Setup, Constants#Y_Error)
-   zObj.init(Pins#ZStep, Pins#ZDir, @status, Constants#Z_Go, Constants#Z_Setup, Constants#Z_Error)
+   xObj.init(Pins#XStep, Pins#XDir, Pins#XLimit, @status, Constants#X_Go, Constants#X_Setup, Constants#X_Error)
+   yObj.init(Pins#YStep, Pins#YDir, Pins#YLimit, @status, Constants#Y_Go, Constants#Y_Setup, Constants#Y_Error)
+   zObj.init(Pins#ZStep, Pins#ZDir, Pins#ZLimit, @status, Constants#Z_Go, Constants#Z_Setup, Constants#Z_Error)
 
   curMode := AXES_MODE
+  pathType := POSITIONING
+
+  xPos := 0
+  yPos := 0
+  zPos := 0
+  aPos := 0
 
   dira[31] := 0
   dira[30] := 1
@@ -101,9 +109,9 @@ PUB readCommand | i
       i++      
     Serial.tx(".")
     if (processCommand(@buf) == 0)
-      Serial.tx("#")
+      Serial.str(string("OK"))
     else
-      Serial.tx("!")
+      Serial.str(string("ERR"))
     i := 0
 
 PUB processCommand(bufPtr)
@@ -119,7 +127,7 @@ PUB processCommand(bufPtr)
          curMode := byte[cmdBufPtr][cmdOffset]
          cmdOffset++
           
-      if curMode == AXES_MODE
+      elseif curMode == AXES_MODE
         case byte[cmdBufPtr][cmdOffset]
           STEP_RATE:
             processStepRate(@cmdOffset)
@@ -158,10 +166,13 @@ PUB processCommand(bufPtr)
         case byte[cmdBufPtr][cmdOffset]
           X_POS:
             serial.dec(xObj.getCurrentPosition)
+           cmdOffset++
           Y_POS:
             serial.dec(yObj.getCurrentPosition)
+            cmdOffset++
           Z_POS:
             serial.dec(zObj.getCurrentPosition)
+            cmdOffset++            
           OTHER:
             return -1                             
 
@@ -176,7 +187,10 @@ PRI processStepRate(indexPtr) | rate, axis, idxVal
   long[indexPtr] := idxVal
   rate := atoi(indexPtr)
 
-  rate := rate
+  Serial.str(string("Vel"))
+  Serial.tx(axis)
+  Serial.dec(rate)
+
   
   CASE axis
     X_AXIS:
@@ -191,31 +205,23 @@ PRI processAccelRate(indexPtr) | rate, axis, idxVal
   idxVal++
   axis := byte[cmdBufPtr][idxVal]
   idxVal++  
-  if (byte[cmdBufPtr][idxVal] == "-")
-    idxVal++
-    long[indexPtr] := idxVal
-    rate := atoi(indexPtr)
+  long[indexPtr] := idxVal
+  rate := atoi(indexPtr)
+
+  Serial.str(string("Accel"))
+  Serial.tx(axis)
+  Serial.dec(rate)
+
     
-    CASE axis
-      X_AXIS:
-        xObj.setDecelerationRate(rate)
-      Y_AXIS:
-        yObj.setDecelerationRate(rate)
-      Z_AXIS:
-        zObj.setDecelerationRate(rate)
-  else
-    long[indexPtr] := idxVal
-    rate := atoi(indexPtr)
-    
-    CASE axis
-      X_AXIS:
-        xObj.setAccelerationRate(rate)
-      Y_AXIS:
-          yObj.setAccelerationRate(rate)
-      Z_AXIS:
-        zObj.setAccelerationRate(rate)
+  CASE axis
+    X_AXIS:
+      xObj.setAccelerationRate(rate)
+    Y_AXIS:
+      yObj.setAccelerationRate(rate)
+    Z_AXIS:
+      zObj.setAccelerationRate(rate)
   
-PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, xTime, yTime, zTime, xDist, yDist, zDist, pathLength
+PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMask, goMask 
   idxVal := long[indexPtr]
 
   idxVal++
@@ -223,45 +229,85 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, xTime, yTime, zTi
 
   idxVal++
 
-  repeat i from 1 to numAxes    
+  ''
+  ''
+  '' TODO redo this
+  '' allow for relative and absolute movements
+  '' TODO  
+  ''  
+  ''
+
+  setupMask := 0
+  goMask := 0
+
+  repeat i from 1 to numAxes
+    Serial.dec(i)    
     axis := byte[cmdBufPtr][idxVal]
+    if (byte[cmdBufPtr][idxVal + 1] == "-" OR byte[cmdBufPtr][idxVal + 1] == "+")
+      relative := 1
     long[indexPtr] := ++idxVal
     pos := atoi(indexPtr)
     idxVal := long[indexPtr]
     CASE axis
       X_AXIS:
-        xPos := pos
+        setupMask |= Constants#X_Setup
+        goMask    |= Constants#X_Go
+        if (relative == 1)
+          xPos := xObj.getCurrentPosition + pos
+        else
+          xPos := pos
       Y_AXIS:
-        yPos := pos
-      Z_AXIS:                                                                     
-        zPos := pos
+        setupMask |= Constants#Y_Setup
+        goMask    |= Constants#Y_Go
+        if (relative == 1)
+          yPos := yObj.getCurrentPosition + pos
+        else
+          yPos := pos
+      Z_AXIS:
+        setupMask |= Constants#Z_Setup
+        goMask    |= Constants#Z_Go                                               
+        if (relative == 1)
+          zPos := zObj.getCurrentPosition + pos
+        else
+          zPos := pos
 
-  xDist := ||(xPos - xObj.getCurrentPosition)
-  yDist := ||(yPos - yObj.getCurrentPosition)
-  zDist := ||(zPos - zObj.getCurrentPosition)
-
+  
   if (pathType == POSITIONING)
-     xObj.configurePath(xPos, xDist, 0, 0)
-     yObj.configurePath(yPos, 0, yDist, 0)
-     zObj.configurePath(zPos, 0, 0, zDist)
+    xObj.setRequestedPosition(xPos)
+    yObj.setRequestedPosition(yPos)
+    zObj.setRequestedPosition(zPos)
   elseif (pathType == LINEAR)
-     xObj.configurePath(xPos, xDist, yDist, zDist)
-     yObj.configurePath(yPos, xDist, yDist, zDist)
-     zObj.configurePath(zPos, xDist, yDist, zDist)      
+    pathType := LINEAR          'TODO nop
 
-  status |= Constants#X_Setup | Constants#Y_Setup | Constants#Z_Setup
+
+  Serial.tx("X")  
+  Serial.dec(xObj.getCurrentPosition)
+  Serial.tx("Y")
+  Serial.dec(yObj.getCurrentPosition)
+  Serial.tx("Z")
+  Serial.dec(zObj.getCurrentPosition)  
+
+  status := setupMask
 
   'Wait for all axes to finish processing their parameters
-  repeat while status & (Constants#X_Setup | Constants#Y_Setup | Constants#Z_Setup) <> 0
+  repeat while (status & setupMask) <> 0
 
   if (status & (Constants#X_Error | Constants#Y_Error | Constants#Z_Error)) <> 0
-    return -1 
-  
-  status |= Constants#X_Go | Constants#Y_Go | Constants#Z_Go
+    return -1
+
+  status := goMask
 
   'Wait to return until all axes are done moving
   'WARNING May cause unintended effects if buffering is implemented
-  repeat while status & (Constants#X_Go | Constants#Y_Go | Constants#Z_Go) <> 0
+  repeat while (status & goMask) <> 0
+
+  Serial.tx("X")  
+  Serial.dec(xObj.getCurrentPosition)
+  Serial.tx("Y")
+  Serial.dec(yObj.getCurrentPosition)
+  Serial.tx("Z")
+  Serial.dec(zObj.getCurrentPosition)  
+
 
   return 0  
   
@@ -292,19 +338,26 @@ PRI processHome(idxPtr) | type, idxVal
   
 PRI processExtruderTemp(indexPtr)  
 
-PRI atoi (indexPtr) : num | idxVal, tmp
+PRI atoi (indexPtr) : num | idxVal, negative
 {Parsing ends when the first non-numerical character is encountered
  Pointer points to the first invalid character
 }
   num := 0
+  negative := 0
   idxVal := word[indexPtr]
   repeat
-    tmp := byte[cmdBufPtr][idxVal]
+    if byte[cmdBufPtr][idxVal] == "-"
+      negative := 1
+      idxVal++
+    if byte[cmdBufPtr][idxVal] == "+"
+      idxVal++  
     if byte[cmdBufPtr][idxVal] => "0" AND byte[cmdBufPtr][idxVal] =< "9"
       num := num * 10 + (byte[cmdBufPtr][idxVal] - "0")
       idxVal++
     else
-      word[indexPtr] := idxVal  'Store ptr value back      
+      word[indexPtr] := idxVal  'Store ptr value back
+      if (negative)
+        num := -num    
       return
 
 DAT

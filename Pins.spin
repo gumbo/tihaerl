@@ -1,17 +1,17 @@
 CON
-  XStep  = 1 << 0
-  XDir   = 1 << 1
-  YStep  = 1 << 2
-  YDir   = 1 << 3
-  ZStep  = 1 << 4
-  ZDir   = 1 << 5
-  AStep  = 1 << 6
-  ADir   = 1 << 7
+  XStep  = 0
+  XDir   = 1
+  YStep  = 2
+  YDir   = 3
+  ZStep  = 4
+  ZDir   = 5
+  AStep  = 6
+  ADir   = 7
   
-  XLimit  = 1 << 12
-  YLimit  = 1 << 13
-  ZLimit  = 1 << 14
-  ALimit  = 1 << 15
+  XLimit  = 12
+  YLimit  = 13
+  ZLimit  = 14
+  ALimit  = 15
 
   VFD_PWM = 1 << 16
   FAULT   = 1 << 11
@@ -22,11 +22,11 @@ CON
 
 'Ethernet
 
-  ETH_CS  = 1 << 21
-  ETH_SCK = 1 << 20
-  ETH_SI  = 1 << 19
-  ETH_SO  = 1 << 18
-  ETH_INT = 1 << 17
+  ETH_CS  = 21
+  ETH_SCK = 20
+  ETH_SI  = 19
+  ETH_SO  = 18
+  ETH_INT = 17
                    
   'SPI
 '  CLK    = 1 << 6
