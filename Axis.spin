@@ -10,6 +10,7 @@ CON
   MaxRateOffset  = 8
   CurPosOffset   = 9  
   ReqPosOffset   = 10
+  UpdateLockID   = 11
 
   Ramp_Idle      = 0
   Ramp_Up        = 1
@@ -22,7 +23,7 @@ OBJ
 VAR
   long axisData[15]
   long clockFreq  
-PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask, errorBitMask)
+PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask, errorBitMask, slockID)
 
     longfill(@axisData, $0, 10)
     
@@ -33,6 +34,7 @@ PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask
     axisData[StepPinOffset] := stepPinNum
     axisData[DirPinOffset]  := dirPinNum
     axisData[LimitPinOffset]  := limitPinNum
+    axisData[UpdateLockID] := slockID
 
     axisData[CurPosOffset] := 0
 
@@ -42,6 +44,8 @@ PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask
 
 PUB setRequestedPosition(reqPosition)
   axisData[ReqPosOffset] := reqPosition
+PUB getRequestedPosition
+  return axisData[ReqPosOffset]
 PUB setCurrentPosition(curPosition)
   axisData[CurPosOffset] := curPosition
 PUB getCurrentPosition
@@ -97,6 +101,8 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         mov curPosHubAddr, hubAddr                           
         add hubAddr, #4
         mov reqPosHubAddr, hubAddr
+        add hubAddr, #4       
+        rdlong lockID, hubAddr
         add hubAddr, #4
 
         shl stepPinMask, stepPin
@@ -114,11 +120,16 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
 wait    rdlong status, statusHubAddr        
         test status, setupBit wz
    if_z jmp #testGoBit             
-        call #_configureMove                       'Setup the appropriate numbers for this axis
+        call #_configureMove                       'Setup the appropriate numbers for this axis    
+acquireLockWait
+        lockset lockID wc
+   if_c jmp #acquireLockWait
+        rdlong status, statusHubAddr
         andn status, setupBit
         wrlong status, statusHubAddr
+        lockclr lockID
 testGoBit        
-        test status, goBit wz      
+        test status, goBit wz            
   if_nz jmp #startMove                              'signal to start
                       
         jmp #wait
@@ -130,10 +141,11 @@ _configureMove
         rdlong accelRate, accelHubAddr 
         rdlong maxVelocity, maxRateAddr
 
-
         cmps curPos, reqPos wc, wz
 
-   if_z jmp #wait
+   if_z mov nextTransition, #0
+   if_z mov nextState, #stopState     
+   if_z jmp #_configureMove_ret
 
    'This was c, second was nc            
   if_nc andn outa, dirPinMask                      '"Positive" direction (away from the motor)
@@ -189,14 +201,13 @@ accelState
   if_nc mov currentState, #cruiseState          'Jump to the cruise state if we've finished accelerating
   if_nc mov nextTransition, length              'We are going to get kicked out of cruise by the monitor loop
   if_nc sub nextTransition, PHSB                'At point (length - curStepCtr)
+  if_nc add nextTransition, #1
 
         jmp #moveLoop
 
 decelState
-        sub FRQA, accelRate                     'Decelerate
-'        mins FRQA, accelRate                     'Make sure we don't stop completely (or go negative)
-        cmp FRQA, accelRate wc
- if_c   mov FRQA, accelRate         
+        cmpsub FRQA, accelRate wz               'Decelerate           
+ if_z   mov FRQA, accelRate                     'Make sure we don't stop completely (if accelRate == FRQA)
         mov nextState, #stopState               'We are going to stop if the monitor loop kicks us out
         mov currentState, #decelState           'Jump back to decel if 1ms expires
         mov nextTransition, length              'Stop when we've gone far enough
@@ -208,12 +219,17 @@ cruiseState
 
 stopState
         mov CTRA, #0                            'Stop the step generator        
-        cmps curPos, reqPos wc
-   if_c adds curPos, PHSB
-  if_nc subs curPos, PHSB
+        cmps curPos, reqPos wc,wz
+if_c_and_nz  adds curPos, PHSB
+if_nc_and_nz subs curPos, PHSB
+acquireLockStop
+        lockset lockID wc
+   if_c jmp #acquireLockStop     
         wrlong curPos, curPosHubAddr
+        rdlong status, statusHubAddr
         andn status, goBit
         wrlong status, statusHubAddr
+        lockclr lockID
                          
         jmp #wait
 
@@ -238,6 +254,7 @@ limitPin      res 1
 goBit         res 1
 setupBit      res 1
 errorBit      res 1
+lockID        res 1
 
 curPos        res 1
 reqPos        res 1

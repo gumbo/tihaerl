@@ -76,18 +76,21 @@ VAR
 
   long ttmp
 
+  byte updateLockID
+
   'Movement variables
   long xPos, yPos, zPos, aPos
 PUB init
 
    'Initialize status
-   status := 0
-
+   status := 0   
    clockFreq := clkFreq
+
+   updateLockID := LOCKNEW
    
-   xObj.init(Pins#XStep, Pins#XDir, Pins#XLimit, @status, Constants#X_Go, Constants#X_Setup, Constants#X_Error)
-   yObj.init(Pins#YStep, Pins#YDir, Pins#YLimit, @status, Constants#Y_Go, Constants#Y_Setup, Constants#Y_Error)
-   zObj.init(Pins#ZStep, Pins#ZDir, Pins#ZLimit, @status, Constants#Z_Go, Constants#Z_Setup, Constants#Z_Error)
+   xObj.init(Pins#XStep, Pins#XDir, Pins#XLimit, @status, Constants#X_Go, Constants#X_Setup, Constants#X_Error, updateLockID)
+   yObj.init(Pins#YStep, Pins#YDir, Pins#YLimit, @status, Constants#Y_Go, Constants#Y_Setup, Constants#Y_Error, updateLockID)
+   zObj.init(Pins#ZStep, Pins#ZDir, Pins#ZLimit, @status, Constants#Z_Go, Constants#Z_Setup, Constants#Z_Error, updateLockID)
 
   curMode := AXES_MODE
   pathType := POSITIONING
@@ -187,9 +190,9 @@ PRI processStepRate(indexPtr) | rate, axis, idxVal
   long[indexPtr] := idxVal
   rate := atoi(indexPtr)
 
-  Serial.str(string("Vel"))
-  Serial.tx(axis)
-  Serial.dec(rate)
+'  Serial.str(string("Vel"))
+'  Serial.tx(axis)
+'  Serial.dec(rate)
 
   
   CASE axis
@@ -208,9 +211,9 @@ PRI processAccelRate(indexPtr) | rate, axis, idxVal
   long[indexPtr] := idxVal
   rate := atoi(indexPtr)
 
-  Serial.str(string("Accel"))
-  Serial.tx(axis)
-  Serial.dec(rate)
+ ' Serial.str(string("Accel"))
+ ' Serial.tx(axis)
+ ' Serial.dec(rate)
 
     
   CASE axis
@@ -241,7 +244,7 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
   goMask := 0
 
   repeat i from 1 to numAxes
-    Serial.dec(i)    
+'    Serial.dec(i)    
     axis := byte[cmdBufPtr][idxVal]
     if (byte[cmdBufPtr][idxVal + 1] == "-" OR byte[cmdBufPtr][idxVal + 1] == "+")
       relative := 1
@@ -280,33 +283,37 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
     pathType := LINEAR          'TODO nop
 
 
-  Serial.tx("X")  
-  Serial.dec(xObj.getCurrentPosition)
-  Serial.tx("Y")
-  Serial.dec(yObj.getCurrentPosition)
-  Serial.tx("Z")
-  Serial.dec(zObj.getCurrentPosition)  
+ ' Serial.tx("X")  
+ ' Serial.dec(xObj.getCurrentPosition)
+ ' Serial.tx("|")
+ ' Serial.dec(xObj.getRequestedPosition)  
+ ' Serial.tx("Y")
+ ' Serial.dec(yObj.getCurrentPosition)
+ ' Serial.tx("|")
+ ' Serial.dec(yObj.getRequestedPosition)    
 
   status := setupMask
 
   'Wait for all axes to finish processing their parameters
   repeat while (status & setupMask) <> 0
 
+  'Serial.tx("A")
+
   if (status & (Constants#X_Error | Constants#Y_Error | Constants#Z_Error)) <> 0
     return -1
 
   status := goMask
 
+  'Serial.tx("B")
+
   'Wait to return until all axes are done moving
   'WARNING May cause unintended effects if buffering is implemented
   repeat while (status & goMask) <> 0
 
-  Serial.tx("X")  
-  Serial.dec(xObj.getCurrentPosition)
-  Serial.tx("Y")
-  Serial.dec(yObj.getCurrentPosition)
-  Serial.tx("Z")
-  Serial.dec(zObj.getCurrentPosition)  
+  'Serial.tx("X")  
+  'Serial.dec(xObj.getCurrentPosition)
+  'Serial.tx("Y")
+  'Serial.dec(yObj.getCurrentPosition)    
 
 
   return 0  
