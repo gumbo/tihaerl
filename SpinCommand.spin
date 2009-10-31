@@ -62,6 +62,8 @@ OBJ
   xObj      : "Axis"
   yObj      : "Axis"
   zObj      : "Axis"
+  math      : "64bitMath"
+  chargePump : "Synth"
 VAR
   byte buf[200]
   
@@ -80,11 +82,15 @@ VAR
 
   'Movement variables
   long xPos, yPos, zPos, aPos
+  long xAccel, yAccel, zAccel, aAccel
+  long xVel, yVel, zVel, aVel
 PUB init
 
    'Initialize status
    status := 0   
    clockFreq := clkFreq
+
+   math.start
 
    updateLockID := LOCKNEW
    
@@ -149,11 +155,10 @@ PUB processCommand(bufPtr)
             if (processMovement(@cmdOffset) == -1)
                return -1                                                         
           ENABLE_DRIVES:
-'            dira |= Pins#Enable                         'Set as output low                               
- '           outa &= !Pins#Enable
+            chargePump.start("A", Pins#CHARGE_PUMP, 15000)
             cmdOffset++
           DISABLE_DRIVES:
-  '          dira &= !Pins#Enable                        'Set as input
+            chargePump.stop("A")
             cmdOffset++
           HOME:
             processHome(@cmdOffset)                                  
@@ -197,11 +202,11 @@ PRI processStepRate(indexPtr) | rate, axis, idxVal
   
   CASE axis
     X_AXIS:
-      xObj.setMaxStepRate(rate)
+      xVel := rate
     Y_AXIS:
-      yObj.setMaxStepRate(rate)
+      yVel := rate
     Z_AXIS:
-      zObj.setMaxStepRate(rate)
+      zVel := rate
 
 PRI processAccelRate(indexPtr) | rate, axis, idxVal
   idxVal := long[indexPtr]
@@ -218,11 +223,11 @@ PRI processAccelRate(indexPtr) | rate, axis, idxVal
     
   CASE axis
     X_AXIS:
-      xObj.setAccelerationRate(rate)
+      xAccel := rate
     Y_AXIS:
-      yObj.setAccelerationRate(rate)
+      yAccel := rate
     Z_AXIS:
-      zObj.setAccelerationRate(rate)
+      zAccel := rate
   
 PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMask, goMask 
   idxVal := long[indexPtr]
@@ -275,12 +280,26 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
           zPos := pos
 
   
+  xObj.setRequestedPosition(xPos)
+  yObj.setRequestedPosition(yPos)
+  zObj.setRequestedPosition(zPos)
+
+  'Set the velocity for each move
   if (pathType == POSITIONING)
-    xObj.setRequestedPosition(xPos)
-    yObj.setRequestedPosition(yPos)
-    zObj.setRequestedPosition(zPos)
+    xObj.setAccelerationRate(xAccel)
+    yObj.setAccelerationRate(yAccel)
+    zObj.setAccelerationRate(zAccel)
+    xObj.setMaxStepRate(xVel)
+    yObj.setMaxStepRate(yVel)
+    zObj.setMaxStepRate(zVel)    
   elseif (pathType == LINEAR)
-    pathType := LINEAR          'TODO nop
+    math.calculatePathLength(||(xObj.getCurrentPosition - xPos), ||(yObj.getCurrentPosition - yPos), 0)'||(zObj.getCurrentPosition - zPos))
+    xObj.setAccelerationRate(math.calcVelocity(xAccel, ||(xObj.getCurrentPosition - xPos)))
+    yObj.setAccelerationRate(math.calcVelocity(yAccel, ||(yObj.getCurrentPosition - yPos)))
+    zObj.setAccelerationRate(math.calcVelocity(zAccel, ||(zObj.getCurrentPosition - zPos)))
+    xObj.setMaxStepRate(math.calcVelocity(xVel, ||(xObj.getCurrentPosition - xPos)))
+    yObj.setMaxStepRate(math.calcVelocity(yVel, ||(yObj.getCurrentPosition - yPos)))
+    zObj.setMaxStepRate(math.calcVelocity(zVel, ||(zObj.getCurrentPosition - zPos)))
 
 
  ' Serial.tx("X")  

@@ -5,15 +5,11 @@ OBJ
   command : "SpinCommand"
 '  Serial  : "FullDuplexSerial"
   pins    : "Pins"
-  f       : "Synth"
 
 PUB main | cmd, status
 
-command.init
-
-  f.Synth("A", 10, 15000)       'Charge pump
-
-
+  command.init
+                                 
   repeat
     command.readCommand
     

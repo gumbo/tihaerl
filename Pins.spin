@@ -15,7 +15,7 @@ CON
 
   VFD_PWM = 1 << 16
   FAULT   = 1 << 11
-  CHARGE_PUMP = 1 << 10
+  CHARGE_PUMP = 10
 
   OUTPUT_1 = 1 << 8
   OUTPUT_2 = 1 << 9
