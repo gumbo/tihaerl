@@ -20,6 +20,7 @@ CON
      
 OBJ
   Constants : "Constants"
+  Serial    : "SerialMirror"
 VAR
   long axisData[15]
   long clockFreq  
@@ -60,7 +61,7 @@ PUB setAccelerationRate(_accelRate) | freq
       freq++
                    
     _accelRate <<= 1
-    
+
   axisData[AccelOffset] := freq
 PUB setMaxStepRate(maxRate) | freq
   maxRate <<= 1 
@@ -156,13 +157,33 @@ _configureMove
         mov length, curPos
         subs length, reqPos
         abs length, length
+
+        {
+              If we are going to have a "short" move then don't do acceleration,
+              just turn on the timer and hit the stop state when necessary
+              TODO moves of length 1 don't seem to do anything
+              TODO how short is short?
+        }
+
+        cmp length, #50 wc, wz
+if_c_or_z jmp #shortMove
+
         mov midPoint, length
         shr midPoint, #1
 
+        'Start deceleration if we never hit the cruise state
         mov nextState, #decelState
         mov currentState, #accelState
         mov nextTransition, midPoint
 
+        jmp #configureHW
+
+shortMove
+        mov nextState, #stopState
+        mov currentState, #cruiseState
+        mov nextTransition, length
+
+configureHW
         andn outa, stepPin
 
         mov FRQA, #0        
@@ -181,41 +202,66 @@ _configureMove_ret ret
 
 startMove
         mov FRQA, accelRate
-        
-moveLoop
+
+        'This is really the monitor loop
+monitorLoop
         mov ctr, loopIterations
-accelWait                        
+monitorWait
         cmp nextTransition, PHSB wz
   if_z  jmp nextState
 '        test INA, limitPin wz                  'Assumes that limit pin goes high when active
 '  if_nz jmp #stopState
-        djnz ctr, #accelWait                    'Loop for ~1ms, minus processing time
+        djnz ctr, #monitorWait                    'Loop for ~1ms, minus processing time
 
         jmp currentState
         
         'Accel State
-accelState                                                                             
-        add FRQA, accelRate                     'Accelerate the timer frequency
-'        max FRQA, maxVelocity wc                'Make sure we don't go over the max velocity
-        cmp FRQA, maxVelocity wc
-  if_nc mov currentState, #cruiseState          'Jump to the cruise state if we've finished accelerating
-  if_nc mov nextTransition, length              'We are going to get kicked out of cruise by the monitor loop
-  if_nc sub nextTransition, PHSB                'At point (length - curStepCtr)
-  if_nc add nextTransition, #1
+accelState
+        {
+              Determine the amount that is left between FRQA and maxVelocity,
+              and only increment that amount.  If we have reached this limit then
+              C or Z will be set, otherwise we are still accelerating.
+        }
+        mov delta, maxVelocity
+        sub delta, FRQA                          'delta = maxVelocity - FRQA
+        max delta, accelRate wc, wz              'Limit accelRate to the amount left to go
+        add FRQA, delta                          'Accelerate the timer frequency
 
-        jmp #moveLoop
+        'Restart the wait loop if we are not done accelerating
+if_nc_and_nz jmp #monitorLoop
+
+        'Done accelerating, transition to the cruise state
+        mov currentState, #cruiseState          'Jump to the cruise state if we've finished accelerating
+        mov nextTransition, length              'We are going to get kicked out of cruise by the monitor loop
+        sub nextTransition, PHSB                'At point (length - curStepCtr)
+        add nextTransition, #1
+
+        jmp #monitorLoop
 
 decelState
-        cmpsub FRQA, accelRate wz               'Decelerate           
- if_z   mov FRQA, accelRate                     'Make sure we don't stop completely (if accelRate == FRQA)
+        {
+              Start out our decel with the same factor that the accel ended with
+              This is so the velocity profile is identical
+              delta may == accelRate
+
+              TODO what about extremely small steps?
+        }
+        cmp delta, #0 wz                        'If delta is 0 then we hit the rate exactly
+  if_nz sub FRQA, delta                         'Otherwise, make the first step smaller
+  if_nz mov delta, #0                           'And don't check again
+
+   if_z cmpsub FRQA, accelRate wz               'Decelerate
+   if_z mov FRQA, accelRate                     'Make sure we don't stop completely (if accelRate == FRQA)
         mov nextState, #stopState               'We are going to stop if the monitor loop kicks us out
         mov currentState, #decelState           'Jump back to decel if 1ms expires
         mov nextTransition, length              'Stop when we've gone far enough
 
-        jmp #moveLoop
+        jmp #monitorLoop
 
+'No acceleration, just continue on at the same frequency until we hit the deceleration
+'point
 cruiseState
-        jmp #moveLoop
+        jmp #monitorLoop
 
 stopState
         mov CTRA, #0                            'Stop the step generator        
@@ -280,38 +326,7 @@ accelRate res 1
 midPoint res 1
 length res 1
 
-rampJmp res 1
-rampState res 1
-
-'Variables for 64 bit math stuff
-inH res 1
-inL res 1
-in2 res 1
-in3 res 1
-nH res 1
-nL res 1
-dH res 1
-dL res 1
-outH res 1
-outL res 1
-t1 res 1
-t2 res 1
-t3 res 1
-t4 res 1
-t5 res 1
-t6 res 1
-t7 res 1
-tH res 1
-tL res 1
-
-i1 res 1
-i2 res 1
-i3 res 1
-i4 res 1
-i5 res 1
-i6 res 1
-
-ptr res 1
+delta res 1
 
         FIT 496
         

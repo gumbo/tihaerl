@@ -57,7 +57,8 @@ CON
 
 OBJ
   Constants : "Constants"
-  Serial  : "FullDuplexSerial"
+'  Serial  : "FullDuplexSerial"
+  Serial    : "SerialMirror"
   Pins      : "Pins"
   xObj      : "Axis"
   yObj      : "Axis"
@@ -65,7 +66,7 @@ OBJ
   math      : "64bitMath"
   chargePump : "Synth"
 VAR
-  byte buf[200]
+  'byte buf[200]
   
   long status
   long cmdBufPtr
@@ -108,13 +109,14 @@ PUB init
 
   dira[31] := 0
   dira[30] := 1
-  
+
   Serial.start(31, 30, 0, 115200)
   
 PUB readCommand | i
     i := 0
     repeat while buf[i-1] <> BUF_END AND i < 200
       buf[i] := Serial.rx
+'      Serial.tx(buf[i])
       i++      
     Serial.tx(".")
     if (processCommand(@buf) == 0)
@@ -122,6 +124,17 @@ PUB readCommand | i
     else
       Serial.str(string("ERR"))
     i := 0
+
+    {
+    Serial.str(string("Now At: X "))
+    Serial.dec(xObj.getCurrentPosition)
+    Serial.str(string(" Y "))
+    Serial.dec(yObj.getCurrentPosition)
+    Serial.str(string(" Z "))
+    Serial.dec(zObj.getCurrentPosition)
+
+    Serial.CrLf
+    }
 
 PUB processCommand(bufPtr)
 { Call with a BUF_END terminated string. Executes the command within
@@ -253,6 +266,8 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
     axis := byte[cmdBufPtr][idxVal]
     if (byte[cmdBufPtr][idxVal + 1] == "-" OR byte[cmdBufPtr][idxVal + 1] == "+")
       relative := 1
+    else
+      relative := 0
     long[indexPtr] := ++idxVal
     pos := atoi(indexPtr)
     idxVal := long[indexPtr]
@@ -291,7 +306,7 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
     zObj.setAccelerationRate(zAccel)
     xObj.setMaxStepRate(xVel)
     yObj.setMaxStepRate(yVel)
-    zObj.setMaxStepRate(zVel)    
+    zObj.setMaxStepRate(zVel)
   elseif (pathType == LINEAR)
     math.calculatePathLength(||(xObj.getCurrentPosition - xPos), ||(yObj.getCurrentPosition - yPos), 0)'||(zObj.getCurrentPosition - zPos))
     xObj.setAccelerationRate(math.calcVelocity(xAccel, ||(xObj.getCurrentPosition - xPos)))
