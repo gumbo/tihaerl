@@ -57,18 +57,17 @@ CON
 
 OBJ
   Constants : "Constants"
-'  Serial  : "FullDuplexSerial"
-  Serial    : "SerialMirror"
   Pins      : "Pins"
   xObj      : "Axis"
   yObj      : "Axis"
   zObj      : "Axis"
   math      : "64bitMath"
   chargePump : "Synth"
+  Serial    : "SerialMirror"
 VAR
   'byte buf[200]
   
-  long status
+  long go_flag
   long cmdBufPtr
 
   long cmdOffset
@@ -88,16 +87,16 @@ VAR
 PUB init
 
    'Initialize status
-   status := 0   
+   go_flag := 0
    clockFreq := clkFreq
 
    math.start
 
    updateLockID := LOCKNEW
    
-   xObj.init(Pins#XStep, Pins#XDir, Pins#XLimit, @status, Constants#X_Go, Constants#X_Setup, Constants#X_Error, updateLockID)
-   yObj.init(Pins#YStep, Pins#YDir, Pins#YLimit, @status, Constants#Y_Go, Constants#Y_Setup, Constants#Y_Error, updateLockID)
-   zObj.init(Pins#ZStep, Pins#ZDir, Pins#ZLimit, @status, Constants#Z_Go, Constants#Z_Setup, Constants#Z_Error, updateLockID)
+   xObj.init(Pins#XStep, Pins#XDir, Pins#XLimit, Pins#Fault, @go_flag)
+   yObj.init(Pins#YStep, Pins#YDir, Pins#YLimit, Pins#Fault, @go_flag)
+   zObj.init(Pins#ZStep, Pins#ZDir, Pins#ZLimit, Pins#Fault, @go_flag)
 
   curMode := AXES_MODE
   pathType := POSITIONING
@@ -110,31 +109,6 @@ PUB init
   dira[31] := 0
   dira[30] := 1
 
-  Serial.start(31, 30, 0, 115200)
-  
-PUB readCommand | i
-    i := 0
-    repeat while buf[i-1] <> BUF_END AND i < 200
-      buf[i] := Serial.rx
-'      Serial.tx(buf[i])
-      i++      
-    Serial.tx(".")
-    if (processCommand(@buf) == 0)
-      Serial.str(string("OK"))
-    else
-      Serial.str(string("ERR"))
-    i := 0
-
-    {
-    Serial.str(string("Now At: X "))
-    Serial.dec(xObj.getCurrentPosition)
-    Serial.str(string(" Y "))
-    Serial.dec(yObj.getCurrentPosition)
-    Serial.str(string(" Z "))
-    Serial.dec(zObj.getCurrentPosition)
-
-    Serial.CrLf
-    }
 
 PUB processCommand(bufPtr)
 { Call with a BUF_END terminated string. Executes the command within
@@ -168,7 +142,7 @@ PUB processCommand(bufPtr)
             if (processMovement(@cmdOffset) == -1)
                return -1                                                         
           ENABLE_DRIVES:
-            chargePump.start("A", Pins#CHARGE_PUMP, 15000)
+            chargePump.start("A", Pins#ChargePump, 15000)
             cmdOffset++
           DISABLE_DRIVES:
             chargePump.stop("A")
@@ -186,13 +160,13 @@ PUB processCommand(bufPtr)
       elseif  curMode == QUERY_MODE
         case byte[cmdBufPtr][cmdOffset]
           X_POS:
-            serial.dec(xObj.getCurrentPosition)
+'            serial.dec(xObj.getCurrentPosition)
            cmdOffset++
           Y_POS:
-            serial.dec(yObj.getCurrentPosition)
+ '           serial.dec(yObj.getCurrentPosition)
             cmdOffset++
           Z_POS:
-            serial.dec(zObj.getCurrentPosition)
+  '          serial.dec(zObj.getCurrentPosition)
             cmdOffset++            
           OTHER:
             return -1                             
@@ -250,17 +224,6 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
 
   idxVal++
 
-  ''
-  ''
-  '' TODO redo this
-  '' allow for relative and absolute movements
-  '' TODO  
-  ''  
-  ''
-
-  setupMask := 0
-  goMask := 0
-
   repeat i from 1 to numAxes
 '    Serial.dec(i)    
     axis := byte[cmdBufPtr][idxVal]
@@ -273,22 +236,16 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
     idxVal := long[indexPtr]
     CASE axis
       X_AXIS:
-        setupMask |= Constants#X_Setup
-        goMask    |= Constants#X_Go
         if (relative == 1)
           xPos := xObj.getCurrentPosition + pos
         else
           xPos := pos
       Y_AXIS:
-        setupMask |= Constants#Y_Setup
-        goMask    |= Constants#Y_Go
         if (relative == 1)
           yPos := yObj.getCurrentPosition + pos
         else
           yPos := pos
       Z_AXIS:
-        setupMask |= Constants#Z_Setup
-        goMask    |= Constants#Z_Go                                               
         if (relative == 1)
           zPos := zObj.getCurrentPosition + pos
         else
@@ -316,38 +273,24 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
     yObj.setMaxStepRate(math.calcVelocity(yVel, ||(yObj.getCurrentPosition - yPos)))
     zObj.setMaxStepRate(math.calcVelocity(zVel, ||(zObj.getCurrentPosition - zPos)))
 
-
- ' Serial.tx("X")  
- ' Serial.dec(xObj.getCurrentPosition)
- ' Serial.tx("|")
- ' Serial.dec(xObj.getRequestedPosition)  
- ' Serial.tx("Y")
- ' Serial.dec(yObj.getCurrentPosition)
- ' Serial.tx("|")
- ' Serial.dec(yObj.getRequestedPosition)    
-
-  status := setupMask
-
-  'Wait for all axes to finish processing their parameters
-  repeat while (status & setupMask) <> 0
-
-  'Serial.tx("A")
-
-  if (status & (Constants#X_Error | Constants#Y_Error | Constants#Z_Error)) <> 0
-    return -1
-
-  status := goMask
-
-  'Serial.tx("B")
+  go_flag := TRUE
 
   'Wait to return until all axes are done moving
   'WARNING May cause unintended effects if buffering is implemented
-  repeat while (status & goMask) <> 0
+  repeat while (xObj.isMoving OR yObj.isMoving OR zObj.isMoving) == TRUE
+    Serial.tx("X")
+    Serial.hex(xObj.isMoving, 2)
+    Serial.tx("Y")
+    Serial.hex(yObj.isMoving, 2)
+    Serial.tx("Z")
+    Serial.hex(zObj.isMoving, 2)
+    Serial.CrLf
+    waitcnt(clkfreq/4+cnt)
 
-  'Serial.tx("X")  
-  'Serial.dec(xObj.getCurrentPosition)
-  'Serial.tx("Y")
-  'Serial.dec(yObj.getCurrentPosition)    
+  Serial.tx("X")
+  Serial.dec(xObj.getCurrentPosition)
+  Serial.tx("Y")
+  Serial.dec(yObj.getCurrentPosition)
 
 
   return 0  

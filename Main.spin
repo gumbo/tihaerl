@@ -27,13 +27,16 @@ OBJ
   command : "SpinCommand"
   pins    : "Pins"
   socket  : "api_telnet_serial"
+  serial  : "SerialMirror"
 
 PUB main | cmd, status, i
 
   command.init
 
+  serial.start(31, 30, 0, 115200)
+
   'Init the TCP/IP driver
-  socket.start(ETH_CS, ETH_SCK, ETH_SI, ETH_SO, ETH_INT, -1, @mac_addr, @ip_addr)
+  socket.start(Pins#ETH_CS, Pins#ETH_SCK, Pins#ETH_SI, Pins#ETH_SO, Pins#ETH_INT, -1, @mac_addr, @ip_addr)
 
   \socket.listen(4004, @tcp_rx, rxlen, @tcp_tx, txlen)
 
@@ -41,11 +44,20 @@ PUB main | cmd, status, i
     if \socket.isConnected      'Process the stream when a client connects
       processStream
 
-  repeat
-    command.readCommand
 
-PRI processStream
+PRI processStream | i
   repeat
     ifnot \socket.isConnected
       return
     else
+      i := 0
+      repeat while cmd_buf[i-1] <> "." and i < 200
+        cmd_buf[i] := socket.rx
+        serial.tx(cmd_buf[i])
+        i++
+      if (command.processCommand(@cmd_buf) == 0)
+        socket.str(string("OK"))
+      else
+        socket.str(string("ERR"))
+      socket.txflush
+

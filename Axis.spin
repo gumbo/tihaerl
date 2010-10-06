@@ -1,48 +1,47 @@
 CON
-  StatusOffset   = 0          'Address
-  GoBitOffset    = 1
-  SetupBitOffset = 2
-  ErrorBitOffset = 3
-  StepPinOffset  = 4  
-  DirPinOffset   = 5
-  LimitPinOffset = 6
-  AccelOffset    = 7
-  MaxRateOffset  = 8
-  CurPosOffset   = 9  
-  ReqPosOffset   = 10
-  UpdateLockID   = 11
+  GoFlagOffset     = 0
+  MovingFlagOffset = 1
+  StepPinOffset    = 2
+  DirPinOffset     = 3
+  LimitPinOffset   = 4
+  FaultPinOffset   = 5
+  AccelOffset      = 6
+  MaxRateOffset    = 7
+  CurPosOffset     = 8
+  ReqPosOffset     = 9
 
   Ramp_Idle      = 0
   Ramp_Up        = 1
   Ramp_Max       = 2 
   Ramp_Down      = 3
-  Ramp_Last      = 4     
-     
-OBJ
-  Constants : "Constants"
-  Serial    : "SerialMirror"
+  Ramp_Last      = 4
+
 VAR
+  long moving_flag              'TRUE if we haven't finished moving
   long axisData[15]
   long clockFreq  
-PUB init(stepPinNum, dirPinNum, limitPinNum, statusAddr, goBitMask, setupBitMask, errorBitMask, slockID)
+PUB init(stepPinNum, dirPinNum, limitPinNum, faultPinNum, goflagAddr)
 
     longfill(@axisData, $0, 10)
     
-    axisData[StatusOffset] := statusAddr
-    axisData[GoBitOffset] := goBitMask
-    axisData[SetupBitOffset] := setupBitMask
-    axisData[ErrorBitOffset] := errorBitMask
-    axisData[StepPinOffset] := stepPinNum
-    axisData[DirPinOffset]  := dirPinNum
-    axisData[LimitPinOffset]  := limitPinNum
-    axisData[UpdateLockID] := slockID
+    axisData[GoFlagOffset]     := goflagAddr
+    axisData[MovingFlagOffset] := @moving_flag
 
-    axisData[CurPosOffset] := 0
+    axisData[StepPinOffset]    := stepPinNum
+    axisData[DirPinOffset]     := dirPinNum
+    axisData[FaultPinOffset]   := faultPinNum
+    axisData[LimitPinOffset]   := limitPinNum
+
+    axisData[CurPosOffset]     := 0
 
     clockFreq := clkFreq
+
+    moving_flag   := FALSE
      
     cognew(@entry, @axisData)
 
+PUB isMoving
+    return moving_flag == 0
 PUB setRequestedPosition(reqPosition)
   axisData[ReqPosOffset] := reqPosition
 PUB getRequestedPosition
@@ -80,19 +79,17 @@ DAT
         
 entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub memory
 
-        rdlong statusHubAddr, hubAddr                'Position 0        
+        rdlong goFlagHubAddr, hubAddr                'Position 0
         add hubAddr, #4
-        rdlong goBit, hubAddr
+        rdlong moveFlagHubAddr, hubAddr
         add hubAddr, #4
-        rdlong setupBit, hubAddr
-        add hubAddr, #4
-        rdlong errorBit, hubAddr
-        add hubAddr, #4
-        rdlong stepPin, hubAddr                                 
+        rdlong stepPin, hubAddr
         add hubAddr, #4                                         
         rdlong dirPin, hubAddr                                  
         add hubAddr, #4
         rdlong limitPin, hubAddr
+        add hubAddr, #4
+        rdlong faultPin, hubAddr
         add hubAddr, #4
         
         mov accelHubAddr, hubAddr                            
@@ -103,37 +100,34 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         add hubAddr, #4
         mov reqPosHubAddr, hubAddr
         add hubAddr, #4       
-        rdlong lockID, hubAddr
-        add hubAddr, #4
 
         shl stepPinMask, stepPin
         shl dirPinMask, dirPin
         shl limitPinMask, limitPin
-        
+        shl faultPinMask, faultPin
+        or  limitPinMask, faultPinMask
 
-        or dira, stepPinMask
+        or dira, stepPinMask                       'Enable step and dir as outputs
         or dira, dirPinMask
-        andn outa, stepPinMask
-        andn outa, dirPinMask        
+        andn outa, stepPinMask                     'And set them low
+        andn outa, dirPinMask
 
-        jmp #wait
+        andn dira, limitPinMask                    'Error pins are inputs
 
-wait    rdlong status, statusHubAddr        
-        test status, setupBit wz
-   if_z jmp #testGoBit             
-        call #_configureMove                       'Setup the appropriate numbers for this axis    
-acquireLockWait
-        lockset lockID wc
-   if_c jmp #acquireLockWait
-        rdlong status, statusHubAddr
-        andn status, setupBit
-        wrlong status, statusHubAddr
-        lockclr lockID
-testGoBit        
-        test status, goBit wz            
-  if_nz jmp #startMove                              'signal to start
-                      
-        jmp #wait
+wait
+        rdlong go_flag, goFlagHubAddr wz           'This value is non-zero if we are supposed to go
+   if_z jmp #wait
+
+        'Begin configuration. We want this step to always take the same amount of
+        'time regardless of the path through it. So, sync to some larger cnt value
+        'This also ensures we wait 2us for dir to latch
+        mov cfgSyncCnt, configureDelay
+        add cfgSyncCnt, cnt
+        call #_configureMove
+        waitcnt cfgSyncCnt, #1
+
+        'Start moving!
+        jmp #startMove                              'signal to start
 
 _configureMove
         rdlong curPos, curPosHubAddr 
@@ -151,8 +145,6 @@ _configureMove
    'This was c, second was nc            
   if_nc andn outa, dirPinMask                      '"Positive" direction (away from the motor)
    if_c or   outa, dirPinMask                      '"Negative" direction (towards the motor)
-
-        call #wait2us
 
         mov length, curPos
         subs length, reqPos
@@ -203,15 +195,16 @@ _configureMove_ret ret
 startMove
         mov FRQA, accelRate
 
-        'This is really the monitor loop
+        'Monitor when to switch states based on steps, and
+        'also monitor limit switch and fault line
 monitorLoop
-        mov ctr, loopIterations
+        mov ctr, one_ms_delay
 monitorWait
         cmp nextTransition, PHSB wz
   if_z  jmp nextState
-'        test INA, limitPin wz                  'Assumes that limit pin goes high when active
-'  if_nz jmp #stopState
-        djnz ctr, #monitorWait                    'Loop for ~1ms, minus processing time
+        test INA, limitPin wz                  'Assumes that limit pin goes high when active
+  if_nz jmp #stopState
+        djnz ctr, #monitorWait                 'Loop for ~1ms, minus processing time
 
         jmp currentState
         
@@ -268,44 +261,42 @@ stopState
         cmps curPos, reqPos wc,wz
 if_c_and_nz  adds curPos, PHSB
 if_nc_and_nz subs curPos, PHSB
-acquireLockStop
-        lockset lockID wc
-   if_c jmp #acquireLockStop     
-        wrlong curPos, curPosHubAddr
-        rdlong status, statusHubAddr
-        andn status, goBit
-        wrlong status, statusHubAddr
-        lockclr lockID
-                         
+        {
+              TODO verify we are getting in this state and properly
+              clearing the right values
+              verify we get into this state w/o any configuration,
+              nothting to do, etc
+        }
+        wrlong curPos, curPosHubAddr            'Update the position
+        mov    go_flag, #0
+        wrlong go_flag,   goFlagHubAddr             'The first axis to finish will clear the go flag after they have all started
+        mov    move_flag, #0
+        wrlong move_flag, moveFlagHubAddr           'Mark that we're done moving
+
         jmp #wait
 
+one_ms_delay   LONG 80_000      'TODO fix this count. This is clocks but we are doing loop cycles
+configureDelay LONG 500         'TOD0 this needs to be 160 + instructions
+stepPinMask    LONG 1
+dirPinMask     LONG 1
+limitPinMask   LONG 1
+faultPinMask   LONG 1
 
-        
-wait2us 'Wait ~2us for dir to settle
-        mov cntVal, #160
-        add cntVal, cnt
-        waitcnt cntVal, #1
-wait2us_ret ret        
-
-loopIterations LONG 80_000      'TODO fix this count
-stepPinMask   LONG 1
-dirPinMask    LONG 1
-limitPinMask  LONG 1 
+cfgSyncCnt    res 1
 
 posDelta      res 1
 hubAddr       res 1
 stepPin       res 1
 dirPin        res 1
 limitPin      res 1
-goBit         res 1
-setupBit      res 1
-errorBit      res 1
-lockID        res 1
+faultPin      res 1
+
+go_flag       res 1
+move_flag     res 1
 
 curPos        res 1
 reqPos        res 1
 cntVal        res 1
-status        res 1
 
 ctr            res 1
 
@@ -313,13 +304,13 @@ currentState res 1
 nextState res 1
 nextTransition res 1
  
-
-statusHubAddr res 1
-curPosHubAddr res 1
-reqPosHubAddr res 1
-accelHubAddr  res 1
-decelHubAddr  res 1
-maxRateAddr   res 1
+goFlagHubAddr   res 1
+moveFlagHubAddr res 1
+curPosHubAddr   res 1
+reqPosHubAddr   res 1
+accelHubAddr    res 1
+decelHubAddr    res 1
+maxRateAddr     res 1
 
 maxVelocity res 1
 accelRate res 1

@@ -381,7 +381,7 @@ class SerialIO : PluginBase
   {
     displayBuffer = "";
     this.bodyField.Text = displayBuffer;
-    if (txBuffer.Length > 0)
+    if (txBuffer.Length &gt; 0)
     {
       txBuffer = txBuffer.Substring(0,1);
     }

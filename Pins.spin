@@ -13,12 +13,12 @@ CON
   ZLimit  = 14
   ALimit  = 15
 
-  VFD_PWM = 1 << 16
-  FAULT   = 1 << 11
-  CHARGE_PUMP = 10
+  VFD_PWM = 16
+  Fault   = 11
+  ChargePump = 10
 
-  OUTPUT_1 = 1 << 8
-  OUTPUT_2 = 1 << 9
+  Output1 = 8
+  Output2 = 9
 
 'Ethernet
 
@@ -38,6 +38,6 @@ CON
  ' CS3    = 1 << 26
  ' CS4    = 1 << 27
 
-  RX     = 1 << 31
-  TX     = 1 << 30
+  RX     = 31
+  TX     = 30
 PUB init 
