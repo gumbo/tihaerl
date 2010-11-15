@@ -10,7 +10,6 @@ CON
   RW_2 = 12
   E_2  = 13
 
-  RESET = 14
 
   D0 = 0
   D7 = 7
@@ -35,7 +34,7 @@ PUB init(_rs_pin, _rw_pin, _en_pin)
   rw_pin := _rw_pin
   en_pin := _en_pin
 
-  resetDisplay
+  'resetDisplay
 
   
   {{
@@ -159,11 +158,6 @@ PUB main
   repeat
     a++
     }}    
-PUB resetDisplay
-  OUTA[RESET] := 0
-  waitcnt(100_000 + cnt)
-  OUTA[RESET] := 1
-  waitcnt(500_000 + cnt)
 
 PUB initDisplay(brightness)
   write(0, %0011_0000)    'Set bus width to 8 bits

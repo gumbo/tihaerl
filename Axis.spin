@@ -9,6 +9,7 @@ CON
   MaxRateOffset    = 7
   CurPosOffset     = 8
   ReqPosOffset     = 9
+  NumStepsOffset   = 10
 
   Ramp_Idle      = 0
   Ramp_Up        = 1
@@ -22,7 +23,7 @@ VAR
   long clockFreq  
 PUB init(stepPinNum, dirPinNum, limitPinNum, faultPinNum, goflagAddr)
 
-    longfill(@axisData, $0, 10)
+    longfill(@axisData, $0, 15)
     
     axisData[GoFlagOffset]     := goflagAddr
     axisData[MovingFlagOffset] := @moving_flag
@@ -41,7 +42,7 @@ PUB init(stepPinNum, dirPinNum, limitPinNum, faultPinNum, goflagAddr)
     cognew(@entry, @axisData)
 
 PUB isMoving
-    return moving_flag == 0
+    return moving_flag
 PUB setRequestedPosition(reqPosition)
   axisData[ReqPosOffset] := reqPosition
 PUB getRequestedPosition
@@ -49,8 +50,13 @@ PUB getRequestedPosition
 PUB setCurrentPosition(curPosition)
   axisData[CurPosOffset] := curPosition
 PUB getCurrentPosition
-  return axisData[CurPosOffset]    
-PUB setAccelerationRate(_accelRate) | freq
+  return axisData[CurPosOffset]
+PUB getCurrentStepCount
+  return axisData[NumStepsOffset]
+PUB setAccelRate(_accelRate) | freq
+  {{
+    Set the maximum acceleration of this axis in steps/sec
+  }}
   _accelRate <<= 1 
 
   repeat 32                            'perform long division of a/b
@@ -62,7 +68,10 @@ PUB setAccelerationRate(_accelRate) | freq
     _accelRate <<= 1
 
   axisData[AccelOffset] := freq
-PUB setMaxStepRate(maxRate) | freq
+PUB setMaxVelocity(maxRate) | freq
+  {{
+    Set the maximum velocity of this axis in steps/sec
+  }}
   maxRate <<= 1 
 
   repeat 32                            'perform long division of a/b
@@ -99,7 +108,8 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         mov curPosHubAddr, hubAddr                           
         add hubAddr, #4
         mov reqPosHubAddr, hubAddr
-        add hubAddr, #4       
+        add hubAddr, #4
+        mov numStepsHubAddr, hubAddr
 
         shl stepPinMask, stepPin
         shl dirPinMask, dirPin
@@ -113,10 +123,14 @@ entry   mov hubAddr, PAR                        'HubAddr is the pointer into hub
         andn outa, dirPinMask
 
         andn dira, limitPinMask                    'Error pins are inputs
+        andn dira, faultPinMask
 
 wait
         rdlong go_flag, goFlagHubAddr wz           'This value is non-zero if we are supposed to go
    if_z jmp #wait
+
+        mov move_flag, #1
+        wrlong move_flag, moveFlagHubAddr
 
         'Begin configuration. We want this step to always take the same amount of
         'time regardless of the path through it. So, sync to some larger cnt value
@@ -198,14 +212,19 @@ startMove
         'Monitor when to switch states based on steps, and
         'also monitor limit switch and fault line
 monitorLoop
+        mov limitCtr, #0
         mov ctr, one_ms_delay
 monitorWait
         cmp nextTransition, PHSB wz
   if_z  jmp nextState
-        test INA, limitPin wz                  'Assumes that limit pin goes high when active
-  if_nz jmp #stopState
+        test limitPinMask, INA wz              'Assumes that limit pin goes high when active
+ if_nz  add limitCtr, #1
+        mov numSteps, PHSB
+        wrlong numSteps, numStepsHubAddr       'Write the number of steps we've executed to send to the display
         djnz ctr, #monitorWait                 'Loop for ~1ms, minus processing time
 
+        cmp limitCtr, one_ms_delay wc           'Was the limit pin high for an entire ~1 ms?
+ if_nc  jmp #stopState
         jmp currentState
         
         'Accel State
@@ -268,14 +287,14 @@ if_nc_and_nz subs curPos, PHSB
               nothting to do, etc
         }
         wrlong curPos, curPosHubAddr            'Update the position
-        mov    go_flag, #0
+        mov    go_flag,   #0
         wrlong go_flag,   goFlagHubAddr             'The first axis to finish will clear the go flag after they have all started
         mov    move_flag, #0
         wrlong move_flag, moveFlagHubAddr           'Mark that we're done moving
 
         jmp #wait
 
-one_ms_delay   LONG 80_000      'TODO fix this count. This is clocks but we are doing loop cycles
+one_ms_delay   LONG 2855        '20k instructions / 7 instructions per loop ~2857 then subtract some for hub uncertainty
 configureDelay LONG 500         'TOD0 this needs to be 160 + instructions
 stepPinMask    LONG 1
 dirPinMask     LONG 1
@@ -300,6 +319,8 @@ cntVal        res 1
 
 ctr            res 1
 
+limitCtr      res 1
+
 currentState res 1
 nextState res 1
 nextTransition res 1
@@ -311,11 +332,14 @@ reqPosHubAddr   res 1
 accelHubAddr    res 1
 decelHubAddr    res 1
 maxRateAddr     res 1
+maxStepsHubAddr res 1
+numStepsHubAddr res 1
 
 maxVelocity res 1
 accelRate res 1
 midPoint res 1
 length res 1
+numSteps res 1
 
 delta res 1
 

@@ -160,13 +160,13 @@ PUB processCommand(bufPtr)
       elseif  curMode == QUERY_MODE
         case byte[cmdBufPtr][cmdOffset]
           X_POS:
-'            serial.dec(xObj.getCurrentPosition)
+            return xObj.getCurrentPosition
            cmdOffset++
           Y_POS:
- '           serial.dec(yObj.getCurrentPosition)
+            return yObj.getCurrentPosition
             cmdOffset++
           Z_POS:
-  '          serial.dec(zObj.getCurrentPosition)
+            return zObj.getCurrentPosition
             cmdOffset++            
           OTHER:
             return -1                             
@@ -278,14 +278,9 @@ PRI processMovement(indexPtr) | idxVal, numAxes, pos, i, axis, relative, setupMa
   'Wait to return until all axes are done moving
   'WARNING May cause unintended effects if buffering is implemented
   repeat while (xObj.isMoving OR yObj.isMoving OR zObj.isMoving) == TRUE
-    Serial.tx("X")
-    Serial.hex(xObj.isMoving, 2)
-    Serial.tx("Y")
-    Serial.hex(yObj.isMoving, 2)
-    Serial.tx("Z")
-    Serial.hex(zObj.isMoving, 2)
-    Serial.CrLf
-    waitcnt(clkfreq/4+cnt)
+    Serial.bin(INA & $1800, 20)
+    Serial.tx(10)
+    Serial.tx(13)
 
   Serial.tx("X")
   Serial.dec(xObj.getCurrentPosition)

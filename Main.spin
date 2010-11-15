@@ -24,16 +24,19 @@ VAR
   byte cmd_buf[cmdlen]
 
 OBJ
-  command : "SpinCommand"
+'  command : "SpinCommand"
+  interpreter : "GCodeInterpreter"
   pins    : "Pins"
   socket  : "api_telnet_serial"
   serial  : "SerialMirror"
 
 PUB main | cmd, status, i
 
-  command.init
+  interpreter.init
 
   serial.start(31, 30, 0, 115200)
+
+'  processStream
 
   'Init the TCP/IP driver
   socket.start(Pins#ETH_CS, Pins#ETH_SCK, Pins#ETH_SI, Pins#ETH_SO, Pins#ETH_INT, -1, @mac_addr, @ip_addr)
@@ -44,20 +47,19 @@ PUB main | cmd, status, i
     if \socket.isConnected      'Process the stream when a client connects
       processStream
 
-
-PRI processStream | i
+PRI processStream | i, info
   repeat
     ifnot \socket.isConnected
       return
     else
       i := 0
-      repeat while cmd_buf[i-1] <> "." and i < 200
+      repeat while cmd_buf[i-1] <> $0A and i < 200
         cmd_buf[i] := socket.rx
         serial.tx(cmd_buf[i])
         i++
-      if (command.processCommand(@cmd_buf) == 0)
-        socket.str(string("OK"))
-      else
-        socket.str(string("ERR"))
+      cmd_buf[i-1] := 0
+      info := interpreter.processCommand(@cmd_buf)
+      socket.str(info)
+      serial.str(info)
       socket.txflush
 

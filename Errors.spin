@@ -1,0 +1,4 @@
+CON
+  INVALID_CHARACTER = 1
+
+PUB main
