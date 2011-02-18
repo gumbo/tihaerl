@@ -19,12 +19,12 @@ PUB main | i
   go_flag := 0
   x.init(Pins#YStep, Pins#YDir, Pins#YLimit, Pins#Fault, @go_flag)
   x.setCurrentPosition(0)
-  x.setAccelerationRate(1000)
-  x.setMaxStepRate(10000)
+  x.setAccelRate(100)
+  x.setMaxVelocity(30000)
 
 ' dira[11] := 0
 
-  waitcnt(160_000_000 + cnt)
+'  waitcnt(160_000_000 + cnt)
 
   ser.bin(INA[15..11], 5)
   ser.tx(13)
@@ -37,7 +37,7 @@ PUB main | i
   ser.tx(13)
 
   repeat i from 0 to 3
-    x.setRequestedPosition(-20000)
+    x.setRequestedPosition(40000)
     go_flag := TRUE
     repeat while x.isMoving
       if (INA[11] == 1)

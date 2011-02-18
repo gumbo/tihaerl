@@ -5,13 +5,13 @@ CON
   YDir   = 3
   ZStep  = 4
   ZDir   = 5
-  AStep  = 6
-  ADir   = 7
+  EStep  = 6
+  EDir   = 7
   
   XLimit  = 12
   YLimit  = 13
   ZLimit  = 14
-  ALimit  = 15
+  ELimit  = 15
 
   VFD_PWM = 16
   Fault   = 11

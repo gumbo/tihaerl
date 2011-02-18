@@ -223,8 +223,8 @@ monitorWait
         wrlong numSteps, numStepsHubAddr       'Write the number of steps we've executed to send to the display
         djnz ctr, #monitorWait                 'Loop for ~1ms, minus processing time
 
-        cmp limitCtr, one_ms_delay wc           'Was the limit pin high for an entire ~1 ms?
- if_nc  jmp #stopState
+ '       cmp limitCtr, one_ms_delay wc           'Was the limit pin high for an entire ~1 ms?
+' if_nc  jmp #stopState
         jmp currentState
         
         'Accel State

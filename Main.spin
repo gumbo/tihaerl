@@ -2,6 +2,9 @@ CON
   _CLKMODE = XTAL1 + PLL16X
   _XINFREQ = 5_000_000
 
+  NL = 10       '\n
+  CR = 13       '\r
+
 DAT
   mac_addr      byte    $02, $00, $00, $00, $00, $05    ' device mac address, must be unique
 
@@ -36,8 +39,6 @@ PUB main | cmd, status, i
 
   serial.start(31, 30, 0, 115200)
 
-'  processStream
-
   'Init the TCP/IP driver
   socket.start(Pins#ETH_CS, Pins#ETH_SCK, Pins#ETH_SI, Pins#ETH_SO, Pins#ETH_INT, -1, @mac_addr, @ip_addr)
 
@@ -45,21 +46,38 @@ PUB main | cmd, status, i
 
   repeat
     if \socket.isConnected      'Process the stream when a client connects
-      processStream
+      echoStream
+      \socket.close
+      \socket.reListen
 
-PRI processStream | i, info
+PRI echoStream | char, i
+  socket.str(string("start"))
   repeat
-    ifnot \socket.isConnected
-      return
-    else
-      i := 0
-      repeat while cmd_buf[i-1] <> $0A and i < 200
-        cmd_buf[i] := socket.rx
-        serial.tx(cmd_buf[i])
-        i++
-      cmd_buf[i-1] := 0
-      info := interpreter.processCommand(@cmd_buf)
-      socket.str(info)
-      serial.str(info)
+    char := -1
+      repeat while (char := \socket.rxtime(100)) < 0
+        if not socket.isConnected
+          return
+      socket.hex(char, 2)
+      socket.tx(",")
       socket.txflush
+
+PRI processStream | i, info, char
+  socket.str(string("start"))
+  repeat
+    i := 0
+    char := 0
+    repeat while char <> NL and i < 200
+      repeat while (char := \socket.rxtime(100)) < 0
+        if not socket.isConnected
+          return
+      if char <> CR
+        cmd_buf[i] := char
+        i++
+    cmd_buf[i-1] := 0
+    info := interpreter.processCommand(@cmd_buf)
+    socket.str(info)
+    socket.tx(NL)
+    socket.tx(CR)
+    socket.txflush
+
 

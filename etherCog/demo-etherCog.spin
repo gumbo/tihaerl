@@ -13,74 +13,58 @@ CON
   
 OBJ
   netDrv  : "etherCog-enc28j60"
-  sock1   : "etherCog-udp-socket"
-  sock2   : "etherCog-udp-socket"
+  sock    : "etherCog-udp-socket"
   bufq    : "etherCog-buffer-queue"
   
-  debug   : "TV_Text"
+  debug   : "FullDuplexSerial"
 
 VAR
   long  bufMem[BUFFER_SIZE * NUM_BUFFERS / 4]
   long  bufBD[bufq#BD_SIZE * NUM_BUFFERS]
   
-PUB main | i, c
+PUB main | txBuf, rxBuf
 
-  debug.start(12)
+'  debug.start(12)
+  debug.start(31, 30, 0, 115200)
 
-  netDrv.start(3, 2, 1, 0)                   
+'csPin, sckPin, siPin, soPin
+{ ETH_CS  = 21
+  ETH_SCK = 20
+  ETH_SI  = 19
+  ETH_SO  = 18
+  ETH_INT = 17
+                   }
 
-  netDrv.link(sock1.init(128))
-  netDrv.link(sock2.init(256))
+  netDrv.start(21, 20, 19, 18)
+
+  netDrv.link(sock.init(4004))
 
 ' bufq.initFromList(netDrv.getRecycledBuffers(16))  
   bufq.initFromMem(NUM_BUFFERS, BUFFER_SIZE, @bufMem, @bufBD)
 
-  c := $100
+  sock.rxQueueInit(bufq.getN(NUM_BUFFERS-1))
 
-  i := bufq.get
-  WORD[i+2] := BUFFER_SIZE
-  LONG[LONG[i+4]] := c++
-  sock1.txQueuePut(i)
+  repeat while sock.isBound <> true
 
-  i := bufq.get
-  WORD[i+2] := BUFFER_SIZE
-  LONG[LONG[i+4]] := c++
-  sock1.txQueuePut(i)
+  debug.str(string("got socket"))
 
-  sock2.rxRingInit(bufq.getN(1))
-  sock1.rxQueueInit(bufq.getAll)
+  txBuf := bufq.getN(1)
+
+  bytemove(WORD[txBuf+2], string("start"), 5)
+  WORD[txBuf+1] := 5
+
+  debug.str(string("sent start"))
+
+  sock.txQueuePut(txBuf)
+
+  repeat while sock.txQueueGet == 0
+
+  debug.str(string("sent"))
 
   repeat
-    if i := sock1.rxQueueGet
-      sock1.rxQueuePut(i)
-
-    if i := sock1.txQueueGet
-      LONG[LONG[i+4]] := c++
-      sock1.txQueuePut(i)
-
-    showState
-  
-PUB showState
-  debug.out(1)
-  debugSocket(sock1.ptr)
-  debug.out(13)
-  debugSocket(sock2.ptr)
-
-PUB debugSocket(sockPtr) | bd, data
-
-  debug.hex(LONG[sockPtr], 8)
-  debug.out(13)
-  repeat 2
-    debug.hex(LONG[sockPtr += 4], 8)
-    debug.out(13)
-  repeat 2
-    debug.hex(bd := LONG[sockPtr += 4], 8)
-    debug.out(" ")
-    debug.hex(LONG[bd], 8)
-    debug.hex(data := LONG[bd+4], 8)
-    debug.out(" ")
-    data &= !3
-    repeat 12
-      debug.out(BYTE[data++] #> " ")
-    debug.out(13)
-  
+    if rxBuf := sock.rxQueueGet
+       txBuf := sock.txQueueGet
+       bytemove(WORD[txBuf+2], WORD[rxBuf+2], WORD[rxBuf+1])
+       sock.txQueuePut(txBuf)
+       sock.rxQueuePut(rxBuf)
+       debug.str(WORD[txBuf+2])

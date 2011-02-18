@@ -24,7 +24,7 @@ OBJ
   serial       : "FullDuplexSerial"
   pins         : "Pins"
   fmt          : "FloatString"
-  fp           : "Float32_lsmod"
+  fp           : "F32"
 
 VAR
   byte curUnits

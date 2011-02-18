@@ -83,6 +83,42 @@ PUB selectCharacter(line, cursor) | addr
 PUB str(strAddr)
     repeat strsize(strAddr) 'while byte[strAddr] <> 0
       writeData(byte[strAddr++])
+PUB dec(value) | i
+
+'' Print a decimal number
+
+  if value < 0
+    -value
+    writeData("-")
+
+  i := 1_000_000_000
+
+  repeat 10
+    if value => i
+      writeData(value / i + "0")
+      value //= i
+      result~~
+    elseif result or i == 1
+      writeData("0")
+    i /= 10
+
+
+PUB hex(value, digits)
+
+'' Print a hexadecimal number
+
+  value <<= (8 - digits) << 2
+  repeat digits
+    writeData(lookupz((value <-= 4) & $F : "0".."9", "A".."F"))
+
+
+PUB bin(value, digits)
+
+'' Print a binary number
+
+  value <<= 32 - digits
+  repeat digits
+    writeData((value <-= 1) & 1 + "0")
 
 PRI writeCommand(command)
   write(0, command)
@@ -118,4 +154,9 @@ PRI read
 
   DIRA[en_pin] := 1
   DIRA[rs_pin] := 0             'Pin pulled up to 5V
- 
+
+PUB resetDisplays
+  OUTA[RESET] := 0
+  waitcnt(100_000 + cnt)
+  OUTA[RESET] := 1
+  waitcnt(500_000 + cnt)
