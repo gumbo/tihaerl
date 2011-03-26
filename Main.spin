@@ -28,7 +28,8 @@ VAR
 
 OBJ
 '  command : "SpinCommand"
-  interpreter : "GCodeInterpreter"
+'  interpreter : "GCodeInterpreter"
+  interpreter : "BinaryInterpreter"
   pins    : "Pins"
   socket  : "api_telnet_serial"
   serial  : "SerialMirror"
@@ -74,7 +75,7 @@ PRI processStream | i, info, char
         cmd_buf[i] := char
         i++
     cmd_buf[i-1] := 0
-    info := interpreter.processCommand(@cmd_buf)
+    info := interpreter.process(@cmd_buf)
     socket.str(info)
     socket.tx(NL)
     socket.tx(CR)

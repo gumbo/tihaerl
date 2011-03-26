@@ -20,7 +20,9 @@ CON
 VAR
   long moving_flag              'TRUE if we haven't finished moving
   long axisData[15]
-  long clockFreq  
+  long clockFreq
+  long accel
+  long velocity
 PUB init(stepPinNum, dirPinNum, limitPinNum, faultPinNum, goflagAddr)
 
     longfill(@axisData, $0, 15)
@@ -57,6 +59,7 @@ PUB setAccelRate(_accelRate) | freq
   {{
     Set the maximum acceleration of this axis in steps/sec
   }}
+  accel := _accelRate
   _accelRate <<= 1 
 
   repeat 32                            'perform long division of a/b
@@ -72,7 +75,8 @@ PUB setMaxVelocity(maxRate) | freq
   {{
     Set the maximum velocity of this axis in steps/sec
   }}
-  maxRate <<= 1 
+  velocity := maxRate
+  maxRate <<= 1
 
   repeat 32                            'perform long division of a/b
     freq <<= 1
@@ -83,6 +87,10 @@ PUB setMaxVelocity(maxRate) | freq
     maxRate <<= 1
 
   axisData[MaxRateOffset] := freq
+PUB getAccelRate
+  return accel
+PUB getMaxVelocity
+  return velocity
 DAT
         ORG 0
         
@@ -153,7 +161,8 @@ _configureMove
         cmps curPos, reqPos wc, wz
 
    if_z mov nextTransition, #0
-   if_z mov nextState, #stopState     
+   if_z mov nextState, #stopState
+   if_z mov PHSB, #0
    if_z jmp #_configureMove_ret
 
    'This was c, second was nc            
@@ -171,7 +180,7 @@ _configureMove
               TODO how short is short?
         }
 
-        cmp length, #50 wc, wz
+        cmp length, #10 wc, wz
 if_c_or_z jmp #shortMove
 
         mov midPoint, length
@@ -188,6 +197,8 @@ shortMove
         mov nextState, #stopState
         mov currentState, #cruiseState
         mov nextTransition, length
+
+        mov accelRate, #511
 
 configureHW
         andn outa, stepPin
@@ -215,15 +226,15 @@ monitorLoop
         mov limitCtr, #0
         mov ctr, one_ms_delay
 monitorWait
-        cmp nextTransition, PHSB wz
-  if_z  jmp nextState
+        cmp nextTransition, PHSB wz, wc
+if_z  jmp nextState
         test limitPinMask, INA wz              'Assumes that limit pin goes high when active
  if_nz  add limitCtr, #1
         mov numSteps, PHSB
         wrlong numSteps, numStepsHubAddr       'Write the number of steps we've executed to send to the display
         djnz ctr, #monitorWait                 'Loop for ~1ms, minus processing time
 
- '       cmp limitCtr, one_ms_delay wc           'Was the limit pin high for an entire ~1 ms?
+'        cmp limitCtr, one_ms_delay wc           'Was the limit pin high for an entire ~1 ms?
 ' if_nc  jmp #stopState
         jmp currentState
         
@@ -247,8 +258,16 @@ if_nc_and_nz jmp #monitorLoop
         mov nextTransition, length              'We are going to get kicked out of cruise by the monitor loop
         sub nextTransition, PHSB                'At point (length - curStepCtr)
         add nextTransition, #1
+        max nextTransition, length              'In case PHSB == 0
 
         jmp #monitorLoop
+
+        {
+              nextTransition = 19
+              goto decel eventually
+              nextTransition = 18
+              oops
+        }
 
 decelState
         {
@@ -258,12 +277,14 @@ decelState
 
               TODO what about extremely small steps?
         }
+
         cmp delta, #0 wz                        'If delta is 0 then we hit the rate exactly
   if_nz sub FRQA, delta                         'Otherwise, make the first step smaller
   if_nz mov delta, #0                           'And don't check again
 
    if_z cmpsub FRQA, accelRate wz               'Decelerate
    if_z mov FRQA, accelRate                     'Make sure we don't stop completely (if accelRate == FRQA)
+
         mov nextState, #stopState               'We are going to stop if the monitor loop kicks us out
         mov currentState, #decelState           'Jump back to decel if 1ms expires
         mov nextTransition, length              'Stop when we've gone far enough

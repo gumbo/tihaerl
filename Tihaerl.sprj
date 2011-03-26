@@ -2,8 +2,8 @@
 Iamthemagicnumber=1
 
 [Main]
-SelectedTab=12
-NumSubs=13
+SelectedTab=14
+NumSubs=18
 OverrideOptimisation=0
 OptimiseFlags=0
 TreePath=C:\
@@ -18,67 +18,67 @@ TopLine=1
 
 [File3]
 FileName=H:\Tihaerl\Propeller\Axis.spin
-TopLine=1
+TopLine=192
 
 [File4]
 FileName=H:\Tihaerl\Propeller\SerialMirror.spin
-TopLine=249
+TopLine=97
 
 [File5]
 FileName=H:\Tihaerl\Propeller\Constants.spin
 TopLine=1
 
 [File6]
-FileName=H:\Tihaerl\Propeller\GCodeInterpreter.spin
-TopLine=1
-
-[File7]
-FileName=H:\Tihaerl\Propeller\MachineSettings.spin
-TopLine=1
-
-[File8]
 FileName=H:\Tihaerl\Propeller\VirtualAxis.spin
 TopLine=1
 
-[File9]
+[File7]
 FileName=H:\Tihaerl\Propeller\VFDDisplay.spin
+TopLine=34
+
+[File8]
+FileName=H:\Tihaerl\Propeller\Noritake VFD.spin
 TopLine=1
 
-[File10]
-FileName=H:\Tihaerl\Propeller\Noritake VFD.spin
-TopLine=19
-
-[File11]
-FileName=H:\Tihaerl\Propeller\api_telnet_serial.spin
-TopLine=147
-
-[File12]
+[File9]
 FileName=H:\Tihaerl\Propeller\SpinCommand.spin
 TopLine=226
 
-[File13]
+[File10]
 FileName=H:\Tihaerl\Propeller\adc_test.spin
-TopLine=1
+TopLine=58
 
-[File14]
-FileName=H:\Tihaerl\Propeller\ADC_INPUT_DRIVER.spin
-TopLine=297
+[File11]
+FileName=H:\Tihaerl\Propeller\F32.spin
+TopLine=167
 
-[File15]
-FileName=H:\Tihaerl\Propeller\ADC_INPUT_example.spin
-TopLine=152
-
-[File16]
+[File12]
 FileName=H:\Tihaerl\Propeller\FloatString.spin
-TopLine=13
+TopLine=172
 
-[File17]
+[File13]
 FileName=H:\Tihaerl\Propeller\extruder test.spin
 TopLine=1
 
+[File14]
+FileName=H:\Tihaerl\Propeller\PWM_32_v2.spin
+TopLine=46
+
+[File15]
+FileName=H:\Tihaerl\Propeller\BinaryInterpreter.spin
+TopLine=99
+
+[File16]
+FileName=H:\Tihaerl\Propeller\GCodeInterpreter.spin
+TopLine=273
+
+[File17]
+FileName=H:\Tihaerl\Propeller\comm_test_dst.spin
+TopLine=1
+
 [File18]
-FileName=H:\Tihaerl\Propeller\AxisTest.spin
-TopLine=7
+FileName=H:\Tihaerl\Propeller\comm_test_src.spin
+TopLine=1
 
 [File19]
 FileName=H:\Tihaerl\Propeller\etherCog\demo-etherCog.spin
